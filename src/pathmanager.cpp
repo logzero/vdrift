@@ -64,15 +64,11 @@ void PATHMANAGER::Init(std::ostream & info_output, std::ostream & error_output)
 	//find data dir
 	const char * datadir = getenv ( "VDRIFT_DATA_DIRECTORY" );
 	if (datadir == NULL) {
-		#ifndef _WIN32
 		if (FileExists("data/settings/options.config")) {
 			data_directory = "data";
 		} else {
 			data_directory = DATA_DIR;
 		}
-		#else
-		data_directory = "data";
-		#endif
 	} else {
 		data_directory = std::string(datadir);
 	}
