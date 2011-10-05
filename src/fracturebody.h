@@ -1,71 +1,105 @@
 #ifndef BT_FRACTURE_BODY
 #define BT_FRACTURE_BODY
 
-class btDynamicsWorld;
-class btCollisionWorld;
-class btCompoundShape;
-class btManifoldPoint;
-
 #include "LinearMath/btAlignedObjectArray.h"
 #include "BulletDynamics/Dynamics/btRigidBody.h"
 
 #define CUSTOM_FRACTURE_TYPE (btRigidBody::CO_USER_TYPE*2)
 
-template <typename T0, typename T1> T0 cast(T1 t)
-{
-	union {T0 t0; T1 t1;} cast;
-	cast.t1 = t;
-	return cast.t0;
-}
+struct MotionState;
+class btDynamicsWorld;
+class btCompoundShape;
 
 class FractureBody : public btRigidBody
 {
 public:
-	struct Connection
-	{
-		btRigidBody* m_body;
-		btScalar m_strength;
-		btScalar m_elasticLimit;
-		btScalar m_accImpulse;
+	class Info;
+	struct Connection;
 
-		bool isValid() const
-		{
-			return cast<int>(m_body->getCollisionShape()->getUserPointer()) >= 0;
-		}
+	FractureBody(const Info& info);
 
-		Connection() :
-			m_body(0), m_strength(0), m_elasticLimit(0), m_accImpulse(0)
-		{
-			// ctor
-		}
-	};
-	btAlignedObjectArray<Connection> m_connections;
+	// aply impulse to connection of the shape, return true if connection is activated
+	bool applyImpulse(int shape_id, btScalar impulse);
 
-	// the collisionshape has to be a compound shape containing parent body children shapes
-	FractureBody(const btRigidBodyConstructionInfo& info);
+	// if accumulated impulse exceeds connection strength, return true and set broken_con
+	bool updateConnection(int shape_id, int& broken_con);
 
-	void addShape(const btTransform& localTransform, btCollisionShape* shape);
+	// invalidate connection, separate child shape, return child
+	btRigidBody* breakConnection(int con_id);
 
-	// body collision shape user pointer will used to store the connection index
-	void addConnection(btRigidBody* body, const btTransform& localTransform, btScalar strength, btScalar elasticLimit);
+	// true if child connected
+	bool isChildConnected(int i) const;
 
-	// create child body and connect it to fracture body
-	btRigidBody* addBody(const btRigidBodyConstructionInfo& info, btScalar strength, btScalar elasticLimit);
+	// only applied if child is connected to body
+	void updateChildTransform(int i, const btTransform& transform);
 
-	// break connection if accumulated impulse exceeds connection strength return childe body else return null
-	btRigidBody* updateConnection(int shape_id);
+	// to be called after adding bodies
+	void updateMass();
 
-	const Connection& getConnection(int i) const { return m_connections[i]; }
-
-	int numConnections() const { return m_connections.size(); }
-
-	// to be called after adding/breaking connections
-	void updateMassCenter();
-
-	// sync child body states
+	// synchronize child body states
 	void updateState();
 
-	static btCompoundShape* shiftTransform(btCompoundShape* compound, btScalar* masses, btTransform& shift, btVector3& principalInertia);
+	// remove connections, remove child shapes from world
+	void clear(btDynamicsWorld& world);
+
+private:
+	btAlignedObjectArray<Connection> m_connections;
+};
+
+class FractureBody::Info
+{
+public:
+	void addMass(
+		const btVector3& position,
+		btScalar mass);
+
+	void addBody(
+		const btTransform& localTransform,
+		btCollisionShape* shape,
+		const btVector3& inertia,
+		btScalar mass,
+		btScalar strength,
+		btScalar elasticLimit);
+
+	void addBody(
+		int shape_id,
+		const btVector3& inertia,
+		btScalar mass,
+		btScalar strength,
+		btScalar elasticLimit);
+
+    // to be called before passing to fracture body
+    void init(
+        const btVector3& position,
+        const btQuaternion& rotation);
+
+    Info(btAlignedObjectArray<MotionState>& m_states);
+
+	btCompoundShape* m_shape;
+    btAlignedObjectArray<MotionState>& m_states;
+	btAlignedObjectArray<Connection> m_connections;
+	btVector3 m_inertia;
+	btVector3 m_massCenter;
+	btScalar m_mass;
+};
+
+struct FractureBody::Connection
+{
+	btRigidBody* m_body;
+	btScalar m_elasticLimit;
+	btScalar m_plasticLimit;
+	btScalar m_accImpulse;
+	int m_shapeId;
+
+	Connection() :
+		m_body(0),
+		m_elasticLimit(0),
+		m_plasticLimit(0),
+		m_accImpulse(0),
+		m_shapeId(-1)
+	{
+		// ctor
+	}
 };
 
 #endif //BT_FRACTURE_BODY

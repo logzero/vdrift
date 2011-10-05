@@ -6,21 +6,10 @@
 #include "tobullet.h"
 #include "k1999.h"
 
-#define EXTBULLET
-
 inline std::istream & operator >> (std::istream & lhs, btVector3 & rhs)
 {
-	for (size_t i = 0; i < 3; ++i)
-	{
-		std::string str;
-		std::getline(lhs, str, ',');
-
-		std::stringstream s(str);
-		btScalar val(0);
-		s >> val;
-		rhs[i] = val;
-	}
-	return lhs;
+	char sep;
+	return lhs >> rhs[0] >> sep >> rhs[1] >> sep >> rhs[2];
 }
 
 inline std::istream & operator >> (std::istream & lhs, std::vector<std::string> & rhs)
@@ -171,15 +160,6 @@ bool TRACK::LOADER::ContinueLoad()
 
 	if (!loadstatus.second)
 	{
-#ifndef EXTBULLET
-		btCollisionObject * track_object = new btCollisionObject();
-		//track_shape->createAabbTreeFromChildren();
-		track_object->setCollisionShape(track_shape);
-		world.addCollisionObject(track_object);
-		data.objects.push_back(track_object);
-		data.shapes.push_back(track_shape);
-		track_shape = 0;
-#endif
 		data.loaded = true;
 		Clear();
 	}
@@ -189,11 +169,6 @@ bool TRACK::LOADER::ContinueLoad()
 
 bool TRACK::LOADER::BeginObjectLoad()
 {
-#ifndef EXTBULLET
-	assert(track_shape == 0);
-	track_shape = new btCompoundShape(true);
-#endif
-
 	list = true;
 	packload = pack.Load(objectpath + "/objects.jpk");
 
@@ -300,9 +275,12 @@ bool TRACK::LOADER::LoadShape(const PTree & cfg, const MODEL & model, BODY & bod
 	{
 		btVector3 center(0, 0, 0);
 		cfg.get("mass-center", center);
-
+		btTransform transform = btTransform::getIdentity();
+		transform.getOrigin() -= center;
+		
+		btCompoundShape * compound = 0;
 		btCollisionShape * shape = 0;
-		LoadCollisionShape(cfg, center, shape);
+		LoadCollisionShape(cfg, transform, shape, compound);
 
 		if (!shape)
 		{
@@ -311,16 +289,9 @@ bool TRACK::LOADER::LoadShape(const PTree & cfg, const MODEL & model, BODY & bod
 			shape = new btBoxShape(size * 0.5);
 			center = center + ToBulletVector(model.GetAABB().GetCenter());
 		}
-		else if (shape->isCompound())
+		if (compound)
 		{
-			// keep track of child shapes
-			btCompoundShape * compound = static_cast<btCompoundShape*>(shape);
-			btCompoundShapeChild * children = compound->getChildList();
-			int children_count = compound->getNumChildShapes();
-			for (int i = 0; i < children_count; ++i)
-			{
-				data.shapes.push_back(children[i].m_childShape);
-			}
+			shape = compound;
 		}
 		data.shapes.push_back(shape);
 
@@ -514,9 +485,7 @@ bool TRACK::LOADER::LoadNode(const PTree & sec)
 			btTransform transform;
 			transform.setOrigin(ToBulletVector(position));
 			transform.setRotation(ToBulletQuaternion(rotation));
-#ifndef EXTBULLET
-			track_shape->addChildShape(transform, body.shape);
-#else
+
 			btCollisionObject * object = new btCollisionObject();
 			object->setActivationState(DISABLE_SIMULATION);
 			object->setWorldTransform(transform);
@@ -524,7 +493,6 @@ bool TRACK::LOADER::LoadNode(const PTree & sec)
 			object->setUserPointer(body.shape->getUserPointer());
 			data.objects.push_back(object);
 			world.addCollisionObject(object);
-#endif
 		}
 	}
 	else
@@ -811,17 +779,12 @@ std::pair<bool, bool> TRACK::LOADER::ContinueOld()
 		shape->setUserPointer((void*)&data.surfaces[surface]);
 		data.shapes.push_back(shape);
 
-#ifndef EXTBULLET
-		btTransform transform = btTransform::getIdentity();
-		track_shape->addChildShape(transform, shape);
-#else
 		btCollisionObject * object = new btCollisionObject();
 		object->setActivationState(DISABLE_SIMULATION);
 		object->setCollisionShape(shape);
 		object->setUserPointer(shape->getUserPointer());
 		data.objects.push_back(object);
 		world.addCollisionObject(object);
-#endif
 	}
 
 	return std::make_pair(false, true);

@@ -5,8 +5,6 @@
 #include "model.h"
 #include "track.h"
 
-#define EXTBULLET
-
 struct MyRayResultCallback : public btCollisionWorld::RayResultCallback
 {
 	MyRayResultCallback(
@@ -45,9 +43,6 @@ struct MyRayResultCallback : public btCollisionWorld::RayResultCallback
 
 		if(rayResult.m_localShapeInfo)
 		{
-#ifndef EXTBULLET
-			m_shape = rayResult.m_localShapeInfo->m_shape;
-#endif
 			m_shapePart = rayResult.m_localShapeInfo->m_shapePart;
 			m_triangleId = rayResult.m_localShapeInfo->m_triangleIndex;
 		}
@@ -122,16 +117,6 @@ bool DynamicsWorld::castRay(
 			{
 				s = tsc;
 			}
-#ifndef EXTBULLET
-			else if (c->getCollisionShape()->isCompound())
-			{
-				TRACKSURFACE* tss = (TRACKSURFACE*)ray.m_shape->getUserPointer();
-				if (tss >= &surfaces[0] && tss <= &surfaces[surfaces.size()-1])
-				{
-					s = tss;
-				}
-			}
-#endif
 			//std::cerr << "static object without surface" << std::endl;
 		}
 
@@ -231,61 +216,53 @@ void DynamicsWorld::fractureCallback()
 
 		if (((btCollisionObject*)manifold->getBody0())->getInternalType() & CUSTOM_FRACTURE_TYPE)
 		{
-			FractureBody* body = (FractureBody*)manifold->getBody0();
-			btCompoundShape* shape = (btCompoundShape*)body->getCollisionShape();
+			FractureBody* body = static_cast<FractureBody*>(manifold->getBody0());
 			for (int k = 0; k < manifold->getNumContacts(); ++k)
 			{
 				btManifoldPoint& point = manifold->getContactPoint(k);
 				int shape_id = point.m_index0;
-
-				btCollisionShape* child_shape = shape->getChildShape(shape_id);
-				int con_id = cast<int>(child_shape->getUserPointer());
-
-				if (con_id >= 0 && point.m_appliedImpulse > 1E-3)
+				if (point.m_appliedImpulse > 1E-3 &&
+					body->applyImpulse(shape_id, point.m_appliedImpulse))
 				{
-					btAssert(con_id < body->numConnections());
-					FractureBody::Connection & connection = body->m_connections[con_id];
-					if (connection.m_accImpulse < 1E-3)
-					{
-						m_activeConnections.push_back(ActiveCon(body, shape_id));
-					}
-					connection.m_accImpulse += point.m_appliedImpulse;
+					m_activeConnections.push_back(ActiveCon(body, shape_id));
 				}
 			}
 		}
 
 		if (((btCollisionObject*)manifold->getBody1())->getInternalType() & CUSTOM_FRACTURE_TYPE)
 		{
-			FractureBody* body = (FractureBody*)manifold->getBody1();
-			btCompoundShape* shape = (btCompoundShape*)body->getCollisionShape();
+			FractureBody* body = static_cast<FractureBody*>(manifold->getBody1());
 			for (int k = 0; k < manifold->getNumContacts(); ++k)
 			{
 				btManifoldPoint& point = manifold->getContactPoint(k);
 				int shape_id = point.m_index1;
-
-				btCollisionShape* child_shape = shape->getChildShape(shape_id);
-				int con_id = cast<int>(child_shape->getUserPointer());
-
-				if (con_id >= 0 && point.m_appliedImpulse > 1E-3)
+				if (point.m_appliedImpulse > 1E-3 &&
+					body->applyImpulse(shape_id, point.m_appliedImpulse))
 				{
-					btAssert(con_id < body->numConnections());
-					FractureBody::Connection & connection = body->m_connections[con_id];
-					if (connection.m_accImpulse < 1E-3)
-					{
-						m_activeConnections.push_back(ActiveCon(body, shape_id));
-					}
-					connection.m_accImpulse += point.m_appliedImpulse;
+					m_activeConnections.push_back(ActiveCon(body, shape_id));
 				}
 			}
 		}
 	}
 
 	// Update active connections.
+	btAlignedObjectArray<ActiveCon> brokenConnections;
 	for (int i = 0; i < m_activeConnections.size(); ++i)
 	{
 		FractureBody* body = m_activeConnections[i].body;
 		int shape_id = m_activeConnections[i].id;
-		btRigidBody* child = body->updateConnection(shape_id);
-		if (child) addRigidBody(child);
+		int broken_con = -1;
+		if (body->updateConnection(shape_id, broken_con))
+		{
+			brokenConnections.push_back(ActiveCon(body, broken_con));
+		}
+	}
+
+	// Separate pass to break connections, due to shape swapping on removal.
+	for (int i = 0; i < brokenConnections.size(); ++i)
+	{
+		FractureBody* body = brokenConnections[i].body;
+		int broken_con = brokenConnections[i].id;
+		addRigidBody(body->breakConnection(broken_con));
 	}
 }

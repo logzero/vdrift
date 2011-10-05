@@ -26,6 +26,7 @@
 #include <tr1/memory>
 #endif
 
+class FractureBody;
 class DynamicsWorld;
 class PTree;
 
@@ -144,7 +145,7 @@ public:
 
 protected:
 	DynamicsWorld* world;
-	btRigidBody* body;
+	FractureBody* body;
 
 	// body state
 	btTransform transform;
@@ -258,13 +259,6 @@ protected:
 
 	// calculate downshift point based on gear, engine rpm
 	btScalar DownshiftRPM(int gear) const;
-
-	// cardynamics initialization
-	void GetCollisionBox(
-		const btVector3 & bodySize,
-		const btVector3 & bodyCenter,
-		btVector3 & center,
-		btVector3 & size);
 };
 
 #endif

@@ -206,25 +206,22 @@ struct LoadBody
 	SCENENODE & topnode;
 	keyed_container<SCENENODE>::handle & bodynode;
 	LoadDrawable & loadDrawable;
-	bool damage;
 
 	LoadBody(
 		SCENENODE & topnode,
 		keyed_container<SCENENODE>::handle & bodynode,
-		LoadDrawable & loadDrawable,
-		bool damage) :
+		LoadDrawable & loadDrawable) :
 		topnode(topnode),
 		bodynode(bodynode),
-		loadDrawable(loadDrawable),
-		damage(damage)
+		loadDrawable(loadDrawable)
 	{
 		// ctor
 	}
 
 	bool operator()(const PTree & cfg)
 	{
-		const PTree * link;
-		if (damage && cfg.get("link", link))
+		const PTree * mount = 0;
+		if (cfg.get("mount", mount))
 		{
 			// load breakable body drawables
 			if (!loadDrawable(cfg, topnode)) return false;
@@ -439,7 +436,7 @@ bool CAR::LoadLight(
 	node.GetTransform().SetTranslation(MATHVECTOR<float,3>(pos[0], pos[1], pos[2]));
 
 	std::tr1::shared_ptr<MODEL> mesh;
-	if (!content.get("", "cube"+radiusstr, mesh));
+	if (!content.get("", "cube"+radiusstr, mesh))
 	{
 		VERTEXARRAY varray;
 		varray.SetToUnitCube();
@@ -506,17 +503,16 @@ bool CAR::LoadGraphics(
 	}
 
 	// load drawables
-	LoadBody loadBody(topnode, bodynode, loadDrawable, damage);
+	LoadBody loadBody(topnode, bodynode, loadDrawable);
 	SCENENODE & bodynoderef = topnode.GetNode(bodynode);
 	for(PTree::const_iterator i = cfg.begin(); i != cfg.end(); ++i)
 	{
 		if (i->first != "body" &&
-			i->first != "wheel" &&
 			i->first != "steering" &&
 			i->first != "light-brake" &&
 			i->first != "light-reverse")
 		{
-			i->second.forEachRecursive(loadBody);
+			loadBody(i->second);
 		}
 	}
 
@@ -888,9 +884,9 @@ void CAR::SetPosition(const MATHVECTOR <float, 3> & new_position)
 void CAR::UpdateGraphics()
 {
 	if (!bodynode.valid()) return;
-
 	assert(dynamics.GetNumBodies() == topnode.Nodes());
-	unsigned int i = 0;
+
+	int i = 0;
 	keyed_container<SCENENODE> & childlist = topnode.GetNodelist();
 	for (keyed_container<SCENENODE>::iterator ni = childlist.begin(); ni != childlist.end(); ++ni, ++i)
 	{

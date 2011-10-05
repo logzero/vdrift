@@ -3,8 +3,11 @@
 #include "utils.h"
 #include "http.h"
 #include "unittest.h"
+#include "definitions.h"
 
 #include <sstream>
+
+const std::string SVN_SOURCEFORGE::data_url = DATA_URL;
 
 std::map <std::string, int> SVN_SOURCEFORGE::ParseFolderView(const std::string & folderfile)
 {
