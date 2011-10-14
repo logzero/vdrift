@@ -83,11 +83,6 @@ public:
 		return dynamics.GetTire(wpos).GetRadius();
 	}
 
-	COLLISION_CONTACT & GetWheelContact(WHEEL_POSITION wheel_index)
-	{
-		return dynamics.GetWheelContact(wheel_index);
-	}
-
 	void HandleInputs(const std::vector <float> & inputs, float dt);
 
 	CAMERA_SYSTEM & Cameras()
@@ -174,7 +169,7 @@ public:
 	const BEZIER * GetCurPatch(unsigned int wheel) const
 	{
 		assert (wheel < 4);
-		return dynamics.GetWheelContact(WHEEL_POSITION(wheel)).GetPatch();
+		return dynamics.GetPatch(WHEEL_POSITION(wheel));
 	}
 
 	float GetLastSteer() const

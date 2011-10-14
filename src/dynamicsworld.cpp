@@ -1,66 +1,5 @@
 #include "dynamicsworld.h"
 #include "fracturebody.h"
-#include "collision_contact.h"
-#include "tobullet.h"
-#include "model.h"
-#include "track.h"
-
-struct MyRayResultCallback : public btCollisionWorld::RayResultCallback
-{
-	MyRayResultCallback(
-		const btVector3 & rayFromWorld,
-		const btVector3 & rayToWorld,
-		const btCollisionObject * exclude) :
-		m_rayFromWorld(rayFromWorld),
-		m_rayToWorld(rayToWorld),
-		m_shapePart(-1),
-		m_triangleId(-1),
-		m_shape(0),
-		m_exclude(exclude)
-	{
-		// ctor
-	}
-
-	btVector3 m_rayFromWorld;//used to calculate hitPointWorld from hitFraction
-	btVector3 m_rayToWorld;
-	btVector3 m_hitNormalWorld;
-	btVector3 m_hitPointWorld;
-
-	int m_shapePart;
-	int m_triangleId;
-	const btCollisionShape * m_shape;
-	const btCollisionObject * m_exclude;
-
-	virtual	btScalar addSingleResult(btCollisionWorld::LocalRayResult& rayResult, bool normalInWorldSpace)
-	{
-		if (rayResult.m_collisionObject == m_exclude) return 1.0;
-
-		//caller already does the filter on the m_closestHitFraction
-		btAssert(rayResult.m_hitFraction <= m_closestHitFraction);
-
-		m_closestHitFraction = rayResult.m_hitFraction;
-		m_collisionObject = rayResult.m_collisionObject;
-
-		if(rayResult.m_localShapeInfo)
-		{
-			m_shapePart = rayResult.m_localShapeInfo->m_shapePart;
-			m_triangleId = rayResult.m_localShapeInfo->m_triangleIndex;
-		}
-
-		if (normalInWorldSpace)
-		{
-			m_hitNormalWorld = rayResult.m_hitNormalLocal;
-		}
-		else
-		{
-			///need to transform normal into worldspace
-			m_hitNormalWorld = m_collisionObject->getWorldTransform().getBasis() * rayResult.m_hitNormalLocal;
-		}
-
-		m_hitPointWorld.setInterpolate3(m_rayFromWorld,m_rayToWorld,rayResult.m_hitFraction);
-		return rayResult.m_hitFraction;
-	}
-};
 
 DynamicsWorld::DynamicsWorld(
 	btDispatcher* dispatcher,
@@ -70,9 +9,9 @@ DynamicsWorld::DynamicsWorld(
 	btScalar timeStep,
 	int maxSubSteps) :
 	btDiscreteDynamicsWorld(dispatcher, broadphase, constraintSolver, collisionConfig),
-	track(0),
 	timeStep(timeStep),
-	maxSubSteps(maxSubSteps)
+	maxSubSteps(maxSubSteps),
+	rayTestProc(0)
 {
 	setGravity(btVector3(0.0, 0.0, -9.81));
 	setForceUpdateAllAabbs(false);
@@ -83,74 +22,31 @@ DynamicsWorld::~DynamicsWorld()
 	reset();
 }
 
-bool DynamicsWorld::castRay(
-	const btVector3 & origin,
-	const btVector3 & direction,
-	const btScalar length,
-	const btCollisionObject * caster,
-	COLLISION_CONTACT & contact) const
+void DynamicsWorld::rayTest(
+	const btVector3& rayFromWorld,
+	const btVector3& rayToWorld,
+	RayResultCallback& resultCallback) const
 {
-	btVector3 p = origin + direction * length;
-	btVector3 n = -direction;
-	btScalar d = length;
-	int patch_id = -1;
-	const BEZIER * b = 0;
-	const TRACKSURFACE * s = TRACKSURFACE::None();
-	btCollisionObject * c = 0;
-
-	MyRayResultCallback ray(origin, p, caster);
-	rayTest(origin, p, ray);
-
-	// track geometry collision
-	bool geometryHit = ray.hasHit();
-	if (geometryHit)
+	if (rayTestProc)
 	{
-		p = ray.m_hitPointWorld;
-		n = ray.m_hitNormalWorld;
-		d = ray.m_closestHitFraction * length;
-		c = ray.m_collisionObject;
-		if (c->isStaticObject())
-		{
-			TRACKSURFACE* tsc = (TRACKSURFACE*)c->getUserPointer();
-			const std::vector<TRACKSURFACE> & surfaces = track->GetSurfaces();
-			if (tsc >= &surfaces[0] && tsc <= &surfaces[surfaces.size()-1])
-			{
-				s = tsc;
-			}
-			//std::cerr << "static object without surface" << std::endl;
-		}
-
-		// track bezierpatch collision
-		if (track)
-		{
-			MATHVECTOR<float, 3> bezierspace_raystart(origin[1], origin[2], origin[0]);
-			MATHVECTOR<float, 3> bezierspace_dir(direction[1], direction[2], direction[0]);
-			MATHVECTOR<float, 3> colpoint;
-			MATHVECTOR<float, 3> colnormal;
-			patch_id = contact.GetPatchId();
-
-			if(track->CastRay(bezierspace_raystart, bezierspace_dir, length,
-				patch_id, colpoint, b, colnormal))
-			{
-				p = btVector3(colpoint[2], colpoint[0], colpoint[1]);
-				n = btVector3(colnormal[2], colnormal[0], colnormal[1]);
-				d = (colpoint - bezierspace_raystart).Magnitude();
-			}
-		}
-
-		contact = COLLISION_CONTACT(p, n, d, patch_id, b, s, c);
-		return true;
+		rayTestProc->rayTest(rayFromWorld, rayToWorld, resultCallback);
+		btDiscreteDynamicsWorld::rayTest(rayFromWorld, rayToWorld, *rayTestProc);
 	}
-
-	// should only happen on vehicle rollover
-	contact = COLLISION_CONTACT(p, n, d, patch_id, b, s, c);
-	return false;
+	else
+	{
+		btDiscreteDynamicsWorld::rayTest(rayFromWorld, rayToWorld, resultCallback);
+	}
 }
 
 void DynamicsWorld::update(btScalar dt)
 {
 	stepSimulation(dt, maxSubSteps, timeStep);
 	//CProfileManager::dumpAll();
+}
+
+void DynamicsWorld::setRayTestProcessor(RayTestProcessor & rtp)
+{
+	rayTestProc = &rtp;
 }
 
 void DynamicsWorld::debugPrint(std::ostream & out) const
@@ -190,18 +86,12 @@ void DynamicsWorld::removeRigidBody(btRigidBody* body)
 	btDiscreteDynamicsWorld::removeRigidBody(body);
 }
 
-void DynamicsWorld::reset(const TRACK & t)
-{
-	reset();
-	track = &t;
-}
-
 void DynamicsWorld::reset()
 {
 	getBroadphase()->resetPool(getDispatcher());
 	m_nonStaticRigidBodies.resize(0);
 	m_collisionObjects.resize(0);
-	track = 0;
+	//rayTestProc = 0;
 }
 
 void DynamicsWorld::fractureCallback()

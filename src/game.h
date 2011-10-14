@@ -13,8 +13,6 @@
 #include "text_draw.h"
 #include "gui.h"
 #include "car.h"
-#include "dynamicsworld.h"
-#include "collision_contact.h"
 #include "carcontrolmap_local.h"
 #include "hud.h"
 #include "inputgraph.h"
@@ -160,12 +158,6 @@ private:
 	std::list <CAR> cars;
 	std::map <CAR *, int> cartimerids;
 	std::pair <CAR *, CARCONTROLMAP_LOCAL> carcontrols_local;
-
-	btDefaultCollisionConfiguration collisionconfig;
-	btCollisionDispatcher collisiondispatch;
-	btDbvtBroadphase collisionbroadphase;
-	btSequentialImpulseConstraintSolver collisionsolver;
-	DynamicsWorld collision;
 
 	TRACKMAP trackmap;
 	TRACK track;

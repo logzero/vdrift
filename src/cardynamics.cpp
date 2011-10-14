@@ -308,15 +308,15 @@ CARDYNAMICS::CARDYNAMICS() :
 	maxangle(0),
 	damage(false)
 {
-	suspension.resize(WHEEL_POSITION_SIZE);
-	wheel.resize(WHEEL_POSITION_SIZE);
-	tire.resize(WHEEL_POSITION_SIZE);
-	brake.resize(WHEEL_POSITION_SIZE);
 	suspension_force.resize(WHEEL_POSITION_SIZE);
 	wheel_velocity.resize(WHEEL_POSITION_SIZE);
 	wheel_position.resize(WHEEL_POSITION_SIZE);
 	wheel_orientation.resize(WHEEL_POSITION_SIZE);
-	wheel_contact.resize(WHEEL_POSITION_SIZE);
+	wheel_ray.resize(WHEEL_POSITION_SIZE);
+	suspension.resize(WHEEL_POSITION_SIZE);
+	wheel.resize(WHEEL_POSITION_SIZE);
+	tire.resize(WHEEL_POSITION_SIZE);
+	brake.resize(WHEEL_POSITION_SIZE);
 	abs_active.resize(WHEEL_POSITION_SIZE, false);
 	tcs_active.resize(WHEEL_POSITION_SIZE, false);
 }
@@ -397,7 +397,7 @@ bool CARDYNAMICS::Load(
 		if (suspension[i]->GetMaxSteeringAngle() > maxangle) maxangle = suspension[i]->GetMaxSteeringAngle();
 
 		btScalar width = tire[i].GetSidewallWidth() * 0.5;
-		btScalar radius = tire[i].GetRadius() * 0.8;
+		btScalar radius = tire[i].GetRadius() - 0.07; // offset due to wheel ray
 		btVector3 size(width, radius, radius);
 		btCollisionShape * shape = new btCylinderShapeX(size);
 		loadBody(cfg_wheel, error_output, shape, wheel[i].GetMass(), true);
@@ -431,6 +431,7 @@ bool CARDYNAMICS::Load(
 		wheel_velocity[i].setValue(0, 0, 0);
 		wheel_position[i] = LocalToWorld(suspension[i]->GetWheelPosition(0.0));
 		wheel_orientation[i] = LocalToWorld(suspension[i]->GetWheelOrientation());
+		wheel_ray[i].m_exclude = body;
 	}
 
 	// add car to world
@@ -527,16 +528,6 @@ const btCollisionShape * CARDYNAMICS::GetShape() const
 const btVector3 & CARDYNAMICS::GetWheelVelocity(WHEEL_POSITION wp) const
 {
 	return wheel_velocity[wp];
-}
-
-const COLLISION_CONTACT & CARDYNAMICS::GetWheelContact(WHEEL_POSITION wp) const
-{
-	return wheel_contact[wp];
-}
-
-COLLISION_CONTACT & CARDYNAMICS::GetWheelContact(WHEEL_POSITION wp)
-{
-	return wheel_contact[wp];
 }
 
 const btVector3 & CARDYNAMICS::GetCenterOfMass() const
@@ -668,7 +659,7 @@ void CARDYNAMICS::AlignWithGround()
 	bool no_min_height = true;
 	for (int i = 0; i < WHEEL_POSITION_SIZE; ++i)
 	{
-		btScalar height = wheel_contact[i].GetDepth() - 2 * tire[i].GetRadius();
+		btScalar height = wheel_ray[i].getDepth() - 2 * tire[i].GetRadius();
 		if (height < min_height || no_min_height)
 		{
 			min_height = height;
@@ -1135,15 +1126,15 @@ void CARDYNAMICS::DoABS ( int i, btScalar suspension_force )
 void CARDYNAMICS::ComputeSuspensionDisplacement ( int i, btScalar dt )
 {
 	//compute bump effect
-	const TRACKSURFACE & surface = wheel_contact[i].GetSurface();
-	btScalar posx = wheel_contact[i].GetPosition()[0];
-	btScalar posz = wheel_contact[i].GetPosition()[2];
+	const TRACKSURFACE & surface = wheel_ray[i].getSurface();
+	btScalar posx = wheel_ray[i].getPoint()[0];
+	btScalar posz = wheel_ray[i].getPoint()[2];
 	btScalar phase = 2 * M_PI * ( posx + posz ) / surface.bumpWaveLength;
 	btScalar shift = 2 * sin ( phase * M_PI_2 );
 	btScalar amplitude = 0.25 * surface.bumpAmplitude;
 	btScalar bumpoffset = amplitude * ( sin ( phase + shift ) + sin ( M_PI_2*phase ) - 2.0 );
 
-	btScalar relative_displacement = wheel_contact[i].GetDepth() - 2 * tire[i].GetRadius() - bumpoffset;
+	btScalar relative_displacement = wheel_ray[i].getDepth() - 2 * tire[i].GetRadius();// - bumpoffset;
 	assert ( !isnan ( relative_displacement ) );
 	suspension[i]->SetDisplacement ( suspension[i]->GetDisplacement()-relative_displacement, dt );
 	assert ( !isnan ( suspension[i]->GetDisplacement() ) );
@@ -1211,7 +1202,7 @@ btVector3 CARDYNAMICS::ComputeTireFrictionForce (int i, btScalar dt, btScalar no
 	//plane B is the plane defined by using the tire's forward-facing vector as the plane's normal, in wheelspace
 	//vector A is the normal of the driving surface, in wheelspace
 	btVector3 B = direction::forward; //forward facing normal vector
-	btVector3 A = quatRotate(wheel_orientation.inverse(), wheel_contact[ WHEEL_POSITION ( i ) ].GetNormal() ) ; //driving surface normal in wheelspace
+	btVector3 A = quatRotate(wheel_orientation.inverse(), wheel_ray[i].getNormal()) ; //driving surface normal in wheelspace
 	btVector3 Aproj = B.cross(A.cross(B)); //project the ground normal onto our forward facing plane
 	assert(Aproj.length() > 0.001); //ensure the wheel isn't in an odd orientation
 	Aproj = Aproj.normalize();
@@ -1225,8 +1216,8 @@ btVector3 CARDYNAMICS::ComputeTireFrictionForce (int i, btScalar dt, btScalar no
 	btScalar lonvel = direction::forward.dot(groundvel);
 	btScalar latvel = -direction::right.dot(groundvel);
 	btScalar friction_coeff =
-		tire[i].GetTread() * wheel_contact[i].GetSurface().frictionTread +
-		(1.0 - tire[i].GetTread()) * wheel_contact[i].GetSurface().frictionNonTread;
+		tire[i].GetTread() * wheel_ray[i].getSurface().frictionTread +
+		(1.0 - tire[i].GetTread()) * wheel_ray[i].getSurface().frictionNonTread;
 
 	btVector3 friction_force = tire[i].GetForce(
 		normal_force, friction_coeff, camber, angvel, lonvel, latvel);
@@ -1277,11 +1268,11 @@ void CARDYNAMICS::ApplyWheelForces ( btScalar dt, btScalar wheel_drive_torque, i
 	btVector3 tire_torque = direction::right * reaction_torque - direction::up * friction_force[2];
 
 	//set wheel torque due to tire rolling resistance
-	btScalar rolling_resistance = -tire[i].GetRollingResistance(wheel[i].GetAngularVelocity(), wheel_contact[i].GetSurface().rollResistanceCoefficient);
+	btScalar rolling_resistance = -tire[i].GetRollingResistance(wheel[i].GetAngularVelocity(), wheel_ray[i].getSurface().rollResistanceCoefficient);
 	btScalar tire_rolling_resistance_torque = rolling_resistance * tire[i].GetRadius() - tire_friction_torque;
 	assert(!isnan(tire_rolling_resistance_torque));
 
-	tire_force -= groundvel * wheel_contact[i].GetSurface().rollingDrag;
+	tire_force -= groundvel * wheel_ray[i].getSurface().rollingDrag;
 
 	//have the wheels internally apply forces, or just forcibly set the wheel speed if the brakes are locked
 	wheel[i].SetTorque ( wheel_drive_torque+wheel_brake_torque+tire_rolling_resistance_torque, dt );
@@ -1419,14 +1410,10 @@ void CARDYNAMICS::UpdateWheelContacts()
 	for (int i = 0; i < WHEEL_POSITION_SIZE; ++i)
 	{
 		btVector3 raystart = wheel_position[i] - raydir * tire[i].GetRadius();
-		if (!body->isChildConnected(i))
+		wheel_ray[i].set(raystart, raydir, raylen);
+		if (body->isChildConnected(i))
 		{
-			// wheel separated
-			wheel_contact[i] = COLLISION_CONTACT(raystart, raydir, raylen, -1, 0, TRACKSURFACE::None(), 0);
-		}
-		else
-		{
-			world->castRay(raystart, raydir, raylen, body, wheel_contact[i]);
+			world->rayTest(wheel_ray[i].m_rayFrom, wheel_ray[i].m_rayTo, wheel_ray[i]);
 		}
 	}
 }
@@ -1438,7 +1425,7 @@ void CARDYNAMICS::InterpolateWheelContacts()
 	for (int i = 0; i < WHEEL_POSITION_SIZE; ++i)
 	{
 		btVector3 raystart = wheel_position[i] - raydir * tire[i].GetRadius();
-		GetWheelContact(WHEEL_POSITION(i)).CastRay(raystart, raydir, raylen);
+		wheel_ray[i].interpolate(raystart, raydir, raylen);
 	}
 }
 

@@ -49,7 +49,6 @@ static btIndexedMesh GetIndexedMesh(const MODEL & model)
 
 TRACK::LOADER::LOADER(
 	ContentManager & content,
-	DynamicsWorld & world,
 	DATA & data,
 	std::ostream & info_output,
 	std::ostream & error_output,
@@ -63,7 +62,6 @@ TRACK::LOADER::LOADER(
 	const bool dynamic_shadows,
 	const bool agressive_combining) :
 	content(content),
-	world(world),
 	data(data),
 	info_output(info_output),
 	error_output(error_output),
@@ -72,7 +70,6 @@ TRACK::LOADER::LOADER(
 	texturedir(texturedir),
 	sharedobjectpath(sharedobjectpath),
 	anisotropy(anisotropy),
-	reverse(reverse),
 	dynamic_objects(dynamic_objects),
 	dynamic_shadows(dynamic_shadows),
 	agressive_combining(agressive_combining),
@@ -88,6 +85,7 @@ TRACK::LOADER::LOADER(
 {
 	objectpath = trackpath + "/objects";
 	objectdir = trackdir + "/objects";
+	data.reverse_direction = reverse;
 }
 
 TRACK::LOADER::~LOADER()
@@ -160,6 +158,11 @@ bool TRACK::LOADER::ContinueLoad()
 
 	if (!loadstatus.second)
 	{
+		// register shape info
+		for (size_t i = 0; i < data.shapes.size(); ++i)
+		{
+			data.shapes[i]->setUserPointer(&data.shape_info[i]);
+		}
 		data.loaded = true;
 		Clear();
 	}
@@ -261,13 +264,14 @@ bool TRACK::LOADER::LoadShape(const PTree & cfg, const MODEL & model, BODY & bod
 
 		int surface = 0;
 		cfg.get("surface", surface);
-		if (surface >= (int)data.surfaces.size())
-		{
-			surface = 0;
-		}
+		if (surface >= (int)data.surfaces.size()) surface = 0;
+
+		TrackShapeInfo shape_info;
+		shape_info.model = &model;
+		shape_info.surface = &data.surfaces[surface];
+		data.shape_info.push_back(shape_info);
 
 		btBvhTriangleMeshShape * shape = new btBvhTriangleMeshShape(mesh, true);
-		shape->setUserPointer((void*)&data.surfaces[surface]);
 		data.shapes.push_back(shape);
 		body.shape = shape;
 	}
@@ -277,7 +281,7 @@ bool TRACK::LOADER::LoadShape(const PTree & cfg, const MODEL & model, BODY & bod
 		cfg.get("mass-center", center);
 		btTransform transform = btTransform::getIdentity();
 		transform.getOrigin() -= center;
-		
+
 		btCompoundShape * compound = 0;
 		btCollisionShape * shape = 0;
 		LoadCollisionShape(cfg, transform, shape, compound);
@@ -329,8 +333,8 @@ TRACK::LOADER::body_iterator TRACK::LOADER::LoadBody(const PTree & cfg)
 	std::stringstream s(texture_name);
 	s >> texture_names;
 
-	// set relative path for models and textures, ugly hack
-	// need to identificate body references
+	// set relative path for models and textures
+	// need to identify body references
 	// begin ugly hack
 	std::string name;
 	if (cfg.value() == "body" && cfg.parent())
@@ -490,9 +494,9 @@ bool TRACK::LOADER::LoadNode(const PTree & sec)
 			object->setActivationState(DISABLE_SIMULATION);
 			object->setWorldTransform(transform);
 			object->setCollisionShape(body.shape);
-			object->setUserPointer(body.shape->getUserPointer());
+			//object->setUserPointer(body.shape->getUserPointer());
 			data.objects.push_back(object);
-			world.addCollisionObject(object);
+			data.dynamics.addCollisionObject(object);
 		}
 	}
 	else
@@ -517,7 +521,7 @@ bool TRACK::LOADER::LoadNode(const PTree & sec)
 			btRigidBody * object = new btRigidBody(info);
 			object->setContactProcessingThreshold(0.0);
 			data.objects.push_back(object);
-			world.addRigidBody(object);
+			data.dynamics.addRigidBody(object);
 
 			keyed_container<SCENENODE>::handle node_handle = data.dynamic_node.AddNode();
 			SCENENODE & node = data.dynamic_node.GetNode(node_handle);
@@ -537,9 +541,9 @@ bool TRACK::LOADER::LoadNode(const PTree & sec)
 			object->setActivationState(DISABLE_SIMULATION);
 			object->setWorldTransform(transform);
 			object->setCollisionShape(body.shape);
-			object->setUserPointer(body.shape->getUserPointer());
+			//object->setUserPointer(body.shape->getUserPointer());
 			data.objects.push_back(object);
-			world.addCollisionObject(object);
+			data.dynamics.addCollisionObject(object);
 
 			keyed_container <SCENENODE>::handle sh = data.static_node.AddNode();
 			SCENENODE & node = data.static_node.GetNode(sh);
@@ -775,16 +779,19 @@ std::pair<bool, bool> TRACK::LOADER::ContinueOld()
 		data.meshes.push_back(mesh);
 
 		assert(surface >= 0 && surface < (int)data.surfaces.size());
+		TrackShapeInfo shape_info;
+		shape_info.model = model.get();
+		shape_info.surface = &data.surfaces[surface];
+		data.shape_info.push_back(shape_info);
+
 		btBvhTriangleMeshShape * shape = new btBvhTriangleMeshShape(mesh, true);
-		shape->setUserPointer((void*)&data.surfaces[surface]);
 		data.shapes.push_back(shape);
 
 		btCollisionObject * object = new btCollisionObject();
 		object->setActivationState(DISABLE_SIMULATION);
 		object->setCollisionShape(shape);
-		object->setUserPointer(shape->getUserPointer());
 		data.objects.push_back(object);
-		world.addCollisionObject(object);
+		data.dynamics.addCollisionObject(object);
 	}
 
 	return std::make_pair(false, true);
@@ -865,7 +872,13 @@ bool TRACK::LOADER::LoadSurfaces()
 
 		std::string type;
 		surf_cfg.get("Type", type);
-		surface.setType(type);
+		if (type == "asphalt")			surface.type = TRACKSURFACE::ASPHALT;
+		else if (type == "grass")		surface.type = TRACKSURFACE::GRASS;
+		else if (type == "gravel")		surface.type = TRACKSURFACE::GRAVEL;
+		else if (type == "concrete") 	surface.type = TRACKSURFACE::CONCRETE;
+		else if (type == "sand")		surface.type = TRACKSURFACE::SAND;
+		else if (type == "cobbles")		surface.type = TRACKSURFACE::COBBLES;
+		else							surface.type = TRACKSURFACE::NONE;
 
 		float temp = 0.0;
 		surf_cfg.get("BumpWaveLength", temp, error_output);
@@ -918,13 +931,10 @@ bool TRACK::LOADER::LoadRoads()
 		data.roads.back().ReadFrom(trackfile, error_output);
 	}
 
-	if (reverse)
+	if (data.reverse_direction)
 	{
 		ReverseRoads();
-		data.direction = DATA::DIRECTION_REVERSE;
 	}
-	else
-		data.direction = DATA::DIRECTION_FORWARD;
 
 	return true;
 }
@@ -936,7 +946,7 @@ void TRACK::LOADER::ReverseRoads()
 	{
 		int counts = 0;
 
-		for (std::list <ROADSTRIP>::iterator i = data.roads.begin(); i != data.roads.end(); ++i)
+		for (std::vector<ROADSTRIP>::iterator i = data.roads.begin(); i != data.roads.end(); ++i)
 		{
 			optional <const BEZIER *> newstartline = i->FindBezierAtOffset(data.lap[0], -1);
 			if (newstartline)
@@ -1003,7 +1013,7 @@ bool TRACK::LOADER::LoadLapSequence()
 
 			//info_output << "Looking for lap sequence: " << roadid << ", " << patchid << endl;
 			int curroad = 0;
-			for (std::list <ROADSTRIP>::iterator i = data.roads.begin(); i != data.roads.end(); ++i)
+			for (std::vector<ROADSTRIP>::iterator i = data.roads.begin(); i != data.roads.end(); ++i)
 			{
 				if (curroad == roadid)
 				{
@@ -1060,7 +1070,7 @@ bool TRACK::LOADER::CreateRacingLines()
 
 	K1999 k1999data;
 	int n = 0;
-	for (std::list <ROADSTRIP>::iterator i = data.roads.begin(); i != data.roads.end(); ++i,++n)
+	for (std::vector<ROADSTRIP>::iterator i = data.roads.begin(); i != data.roads.end(); ++i,++n)
 	{
 		if (k1999data.LoadData(&(*i)))
 		{

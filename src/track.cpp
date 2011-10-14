@@ -2,20 +2,94 @@
 #include "trackloader.h"
 #include "dynamicsworld.h"
 #include "tobullet.h"
-#include "reseatable_reference.h"
 
-#include <algorithm>
-#include <list>
 #include <map>
-#include <string>
-#include <iostream>
+#include <algorithm>
 #include <fstream>
 #include <sstream>
 
-TRACK::TRACK() :
-	racingline_visible(false)
+struct TRACK::RayTestProcessor : public DynamicsWorld::RayTestProcessor
 {
-	// ctor
+	DATA & data;
+	btCollisionWorld::RayResultCallback * rayCb;
+	btVector3 rayFrom;
+	btVector3 rayTo;
+
+	RayTestProcessor(DATA & data) : data(data), rayCb(0)
+	{
+		// Constructor
+	}
+
+	void rayTest(const btVector3 & rayFromWorld, const btVector3 & rayToWorld, RayResultCallback& cb)
+	{
+		rayFrom = rayFromWorld;
+		rayTo = rayToWorld;
+		rayCb = &cb;
+	}
+
+	btScalar addSingleResult(btCollisionWorld::LocalRayResult& rayResult, bool normalInWorldSpace)
+	{
+		// We only support static mesh collision shapes
+		if (!(rayResult.m_collisionObject->getCollisionFlags() & btCollisionObject::CF_STATIC_OBJECT) &&
+			(rayResult.m_collisionObject->getCollisionShape()->getShapeType() != TRIANGLE_MESH_SHAPE_PROXYTYPE))
+		{
+			return 1.0;
+		}
+		//std::cerr << rayResult.m_hitFraction << "    ";
+
+		const btCollisionShape * s = rayResult.m_collisionObject->getCollisionShape();
+		TrackShapeInfo * si = static_cast<TrackShapeInfo*>(s->getUserPointer());
+
+		// Road bezier patch ray test
+		btVector3 rayVec = rayTo - rayFrom;
+		float rayLen = rayVec.length();
+
+		MATHVECTOR<float, 3> from(rayFrom[1], rayFrom[2], rayFrom[0]);
+		MATHVECTOR<float, 3> to(rayTo[1], rayTo[2], rayTo[0]);
+		MATHVECTOR<float, 3> dir(rayVec[1], rayVec[2], rayVec[0]);
+		dir = dir * 1 / rayLen;
+
+		MATHVECTOR<float, 3> colPoint;
+		MATHVECTOR<float, 3> colNormal;
+		int patchid = si->patchid;
+		const BEZIER * colBez = 0;
+		for (std::vector<ROADSTRIP>::const_iterator i = data.roads.begin(); i != data.roads.end(); ++i)
+		{
+			const BEZIER * bez(0);
+			MATHVECTOR<float, 3> norm;
+			MATHVECTOR<float, 3> point(to);
+			if (i->Collide(from, dir, rayLen, patchid, point, bez, norm) &&
+				((point - from).MagnitudeSquared() < (colPoint - from).MagnitudeSquared()))
+			{
+				colPoint = point;
+				colNormal = norm;
+				colBez = bez;
+			}
+		}
+
+		if (colBez)
+		{
+			btVector3 hitPoint(colPoint[2], colPoint[0], colPoint[1]);
+			btVector3 hitNormal(colNormal[2], colNormal[0], colNormal[1]);
+			btScalar dist_p = hitNormal.dot(hitPoint);
+			btScalar dist_a = hitNormal.dot(rayFrom);
+			btScalar dist_b = hitNormal.dot(rayTo);
+			btScalar fraction = (dist_a - dist_p) / (dist_a - dist_b);
+			rayResult.m_hitFraction = fraction;
+			rayResult.m_hitNormalLocal = hitNormal;
+			si->patch = colBez;
+			si->patchid = patchid;
+		}
+		//std::cerr << rayResult.m_hitFraction << "    ";
+
+		return rayCb->addSingleResult(rayResult, true);
+	}
+};
+
+TRACK::TRACK(float timestep) :
+	data(timestep)
+{
+	// Constructor
 }
 
 TRACK::~TRACK()
@@ -23,18 +97,26 @@ TRACK::~TRACK()
 	Clear();
 }
 
-TRACK::DATA::DATA():
-	world(0),
+TRACK::DATA::DATA(float timestep) :
+	collisionDispatch(&collisionConfig),
+	dynamics(&collisionDispatch, &collisionBroadphase, &collisionSolver, &collisionConfig, timestep),
+	reverse_direction(false),
 	vertical_tracking_skyboxes(false),
+	racingline_visible(false),
 	loaded(false),
 	cull(true)
 {
-	// ctor
+	rayTestProcessor = new RayTestProcessor(*this);
+	dynamics.setRayTestProcessor(*rayTestProcessor);
 }
 
-bool TRACK::DeferredLoad(
+TRACK::DATA::~DATA()
+{
+	delete rayTestProcessor;
+}
+
+bool TRACK::StartDeferredLoad(
 	ContentManager & content,
-	DynamicsWorld & world,
 	std::ostream & info_output,
 	std::ostream & error_output,
 	const std::string & trackpath,
@@ -49,12 +131,11 @@ bool TRACK::DeferredLoad(
 {
 	Clear();
 
-	world.reset(*this);
-	data.world = &world;
+	data.dynamics.reset();
 
 	loader.reset(
 		new LOADER(
-			content, world, data,
+			content, data,
 			info_output, error_output,
 			trackpath, trackdir,
 			texturedir,	sharedobjectpath,
@@ -88,35 +169,14 @@ void TRACK::Clear()
 {
 	for(int i = 0, n = data.objects.size(); i < n; ++i)
 	{
-		data.world->removeCollisionObject(data.objects[i]);
+		data.dynamics.removeCollisionObject(data.objects[i]);
 		delete data.objects[i];
 	}
 	data.objects.clear();
 
-	/*
-	int wnum = data.world->getCollisionObjectArray().size();
-	std::cerr << "world collision objects leaking: " << wnum << std::endl;
-	for (int i = 0; i < wnum; ++i)
-	{
-		btCollisionObject * ob = data.world->getCollisionObjectArray()[i];
-		std::cerr << "collision object leaking: " << ob << std::endl;
-		data.world->removeCollisionObject(ob);
-	}
-	*/
-
 	for(int i = 0, n = data.shapes.size(); i < n; ++i)
 	{
-		btCollisionShape * shape = data.shapes[i];/*
-		if (shape->isCompound())
-		{
-			btCompoundShape * cs = (btCompoundShape *)shape;
-			for (int i = 0, n = cs->getNumChildShapes(); i < n; ++i)
-			{
-				btCollisionShape * childShape = cs->getChildShape(i);
-				delete childShape;
-			}
-		}*/
-		delete shape;
+		delete data.shapes[i];
 	}
 	data.shapes.clear();
 
@@ -137,36 +197,6 @@ void TRACK::Clear()
 	data.start_positions.clear();
 	data.racingline_node.Clear();
 	data.loaded = false;
-}
-
-bool TRACK::CastRay(
-	const MATHVECTOR <float, 3> & origin,
-	const MATHVECTOR <float, 3> & direction,
-	const float seglen,
-	int & patch_id,
-	MATHVECTOR <float, 3> & outtri,
-	const BEZIER * & colpatch,
-	MATHVECTOR <float, 3> & normal) const
-{
-	bool col = false;
-	for (std::list <ROADSTRIP>::const_iterator i = data.roads.begin(); i != data.roads.end(); ++i)
-	{
-		MATHVECTOR <float, 3> coltri, colnorm;
-		const BEZIER * colbez = NULL;
-		if (i->Collide(origin, direction, seglen, patch_id, coltri, colbez, colnorm))
-		{
-			if (!col || (coltri-origin).Magnitude() < (outtri-origin).Magnitude())
-			{
-				outtri = coltri;
-				normal = colnorm;
-				colpatch = colbez;
-			}
-
-			col = true;
-		}
-	}
-
-	return col;
 }
 
 optional <const BEZIER *> ROADSTRIP::FindBezierAtOffset(const BEZIER * bezier, int offset) const
@@ -237,10 +267,13 @@ std::pair <MATHVECTOR <float, 3>, QUATERNION <float> > TRACK::GetStart(unsigned 
 	return data.start_positions[index];
 }
 
-void TRACK::Update()
+void TRACK::Update(float dt)
 {
 	if (!data.loaded) return;
 
+	data.dynamics.update(dt);
+
+	// sync graphics
 	std::list<MotionState>::const_iterator t = data.body_transforms.begin();
 	for (int i = 0, e = data.body_nodes.size(); i < e; ++i, ++t)
 	{

@@ -6,8 +6,6 @@
 
 #include <ostream>
 
-class TRACK;
-class COLLISION_CONTACT;
 class FractureBody;
 
 class DynamicsWorld  : public btDiscreteDynamicsWorld
@@ -27,20 +25,18 @@ public:
 
 	void removeRigidBody(btRigidBody * body);
 
-	// reset collision world (unloads previous track)
-	void reset(const TRACK & t);
-
-	// cast ray into collision world, returns first hit, caster is excluded fom hits
-	bool castRay(
-		const btVector3 & position,
-		const btVector3 & direction,
-		const btScalar length,
-		const btCollisionObject * caster,
-		COLLISION_CONTACT & contact) const;
-
 	void update(btScalar dt);
 
-	void draw();
+	void reset();
+
+	void rayTest(const btVector3 & rayFromWorld, const btVector3 & rayToWorld, RayResultCallback & resultCallback) const;
+
+	// allow to register an external ray result processor
+	struct RayTestProcessor : public RayResultCallback
+	{
+		virtual void rayTest(const btVector3 & rayFromWorld, const btVector3 & rayToWorld, RayResultCallback& cb) = 0;
+	};
+	void setRayTestProcessor(RayTestProcessor & rtp);
 
 	void debugPrint(std::ostream & out) const;
 
@@ -54,11 +50,10 @@ protected:
 	};
 	btAlignedObjectArray<ActiveCon> m_activeConnections;
 	btAlignedObjectArray<FractureBody*> m_fractureBodies;
-	const TRACK * track;
 	btScalar timeStep;
 	int maxSubSteps;
 
-	void reset();
+	RayTestProcessor* rayTestProc;
 
 	void solveConstraints(btContactSolverInfo& solverInfo);
 

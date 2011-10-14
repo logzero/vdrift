@@ -42,7 +42,7 @@ void TRACKMAP::Unload()
 }
 
 bool TRACKMAP::BuildMap(
-	const std::list <ROADSTRIP> & roads,
+	const std::vector<ROADSTRIP> & roads,
 	int w, int h,
 	const std::string & trackname,
 	const std::string & texturepath,
@@ -79,7 +79,7 @@ bool TRACKMAP::BuildMap(
 	map_h_min = FLT_MAX;
 	map_h_max = FLT_MIN;
 
-	for (list <ROADSTRIP>::const_iterator road = roads.begin(); road != roads.end(); road++)
+	for (vector<ROADSTRIP>::const_iterator road = roads.begin(); road != roads.end(); road++)
 	{
 		for (vector<ROADPATCH>::const_iterator curp = road->GetPatches().begin();
 		     curp != road->GetPatches().end(); curp++)
@@ -121,7 +121,7 @@ bool TRACKMAP::BuildMap(
 
 	boxRGBA(surface, 0, 0, outsizex-1, outsizey-1, 0, 0, 0, 0);
 
-	for (list <ROADSTRIP>::const_iterator road = roads.begin(); road != roads.end(); road++)
+	for (vector<ROADSTRIP>::const_iterator road = roads.begin(); road != roads.end(); road++)
 	{
 		for (vector<ROADPATCH>::const_iterator curp = road->GetPatches().begin();
 		     curp != road->GetPatches().end(); curp++)

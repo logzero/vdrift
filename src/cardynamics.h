@@ -12,13 +12,11 @@
 #include "carbrake.h"
 #include "carwheelposition.h"
 #include "caraerodynamicdevice.h"
-#include "collision_contact.h"
 #include "cartelemetry.h"
+#include "carwheelray.h"
 #include "motionstate.h"
 #include "joeserialize.h"
 #include "BulletDynamics/Dynamics/btActionInterface.h"
-#include "btBulletCollisionCommon.h"
-#include "LinearMath/btAlignedObjectArray.h"
 
 #ifdef _MSC_VER
 #include <memory>
@@ -68,10 +66,6 @@ public:
 	const btQuaternion & GetOrientation(int i) const;
 	const btCollisionShape * GetShape() const;
 
-	// collision world interface
-	const COLLISION_CONTACT & GetWheelContact(WHEEL_POSITION wp) const;
-	COLLISION_CONTACT & GetWheelContact(WHEEL_POSITION wp);
-
 	// body
 	const btVector3 & GetWheelVelocity(WHEEL_POSITION wp) const;
 	const btVector3 & GetCenterOfMass() const;
@@ -102,6 +96,8 @@ public:
 	const CARBRAKE & GetBrake(WHEEL_POSITION pos) const {return brake[pos];}
 	const CARWHEEL & GetWheel(WHEEL_POSITION pos) const {return wheel[pos];}
 	const CARTIRE & GetTire(WHEEL_POSITION pos) const {return tire[pos];}
+	const TRACKSURFACE & GetSurface(WHEEL_POSITION pos) const {return wheel_ray[pos].getSurface();}
+	const BEZIER * GetPatch(WHEEL_POSITION pos) const {return wheel_ray[pos].getPatch();}
 
 	// traction control
 	void SetABS(const bool newabs);
@@ -147,13 +143,21 @@ protected:
 	DynamicsWorld* world;
 	FractureBody* body;
 
-	// body state
+	// body
 	btTransform transform;
 	btVector3 linear_velocity;
 	btVector3 angular_velocity;
 	btAlignedObjectArray<MotionState> motion_state;
 
-	// driveline state
+	// suspension
+	btAlignedObjectArray<btVector3> suspension_force;
+	btAlignedObjectArray<btVector3> wheel_velocity;
+	btAlignedObjectArray<btVector3> wheel_position;
+	btAlignedObjectArray<btQuaternion> wheel_orientation;
+	btAlignedObjectArray<CarWheelRay> wheel_ray;
+	std::vector<std::tr1::shared_ptr<CARSUSPENSION> > suspension;
+
+	// driveline
 	CARENGINE engine;
 	CARFUELTANK fuel_tank;
 	CARCLUTCH clutch;
@@ -176,19 +180,11 @@ protected:
 	btScalar last_auto_clutch;
 	btScalar remaining_shift_time;
 
-	// traction control state
+	// traction control
 	bool abs;
 	bool tcs;
 	std::vector<int> abs_active;
 	std::vector<int> tcs_active;
-
-	// suspension
-	btAlignedObjectArray<btVector3> suspension_force;
-	btAlignedObjectArray<btVector3> wheel_velocity;
-	btAlignedObjectArray<btVector3> wheel_position;
-	btAlignedObjectArray<btQuaternion> wheel_orientation;
-	btAlignedObjectArray<COLLISION_CONTACT> wheel_contact;
-	std::vector<std::tr1::shared_ptr<CARSUSPENSION> > suspension;
 
 	btAlignedObjectArray<CARAERO> aerodynamics;
 	std::list<CARTELEMETRY> telemetry;

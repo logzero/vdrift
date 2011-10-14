@@ -107,9 +107,7 @@ GAME::GAME(std::ostream & info_out, std::ostream & error_out) :
 	debugmode(false),
 	profilingmode(false),
 	renderconfigfile("render.conf.deferred"),
-	collisiondispatch(&collisionconfig),
-	collision(&collisiondispatch, &collisionbroadphase, &collisionsolver, &collisionconfig, timestep),
-	track(),
+	track(timestep),
 	replay(timestep),
 	http("/tmp")
 {
@@ -491,7 +489,7 @@ bool GAME::ParseArguments(std::list <std::string> & args)
 	if (!argmap["-cartest"].empty())
 	{
 		pathmanager.Init(info_output, error_output);
-		PERFORMANCE_TESTING perftest(collision);
+		PERFORMANCE_TESTING perftest(track.GetDynamics());
 		const std::string carname = argmap["-cartest"];
 		perftest.Test(pathmanager.GetCarPath(carname), pathmanager.GetCarPartsPath(),
 			carname, info_output, error_output);
@@ -814,7 +812,7 @@ void GAME::AdvanceGameLogic()
 				PROFILER.endBlock("ai");
 
 				PROFILER.beginBlock("physics");
-				collision.update(TickPeriod());
+				track.Update(TickPeriod());
 				PROFILER.endBlock("physics");
 
 				PROFILER.beginBlock("car-update");
@@ -823,9 +821,6 @@ void GAME::AdvanceGameLogic()
 					UpdateCar(*i, TickPeriod());
 				}
 				PROFILER.endBlock("car-update");
-
-				// Update dynamic track objects.
-				track.Update();
 
 				//PROFILER.beginBlock("timer");
 				UpdateTimer();
@@ -2006,7 +2001,7 @@ bool GAME::LoadCar(
 	if (!car.LoadPhysics(
 		carconf, cardir, start_position, start_orientation,
 		settings.GetABS() || isai, settings.GetTCS() || isai,
-		settings.GetVehicleDamage(), content, collision,
+		settings.GetVehicleDamage(), content, track.GetDynamics(),
 		info_output, error_output))
 	{
 		error_output << "Failed to load physics for car " << carname << std::endl;
@@ -2038,9 +2033,8 @@ bool GAME::LoadTrack(const std::string & trackname)
 {
 	LoadingScreen(0.0, 1.0, false, "", 0.5, 0.5);
 
-	if (!track.DeferredLoad(
-			content, collision,
-			info_output, error_output,
+	if (!track.StartDeferredLoad(
+			content, info_output, error_output,
 			pathmanager.GetTracksPath()+"/"+trackname,
 			pathmanager.GetTracksDir()+"/"+trackname,
 			pathmanager.GetEffectsTextureDir(),
@@ -2056,16 +2050,15 @@ bool GAME::LoadTrack(const std::string & trackname)
 	}
 
 	bool success = true;
-	int count = 0;
+	int displayevery = track.ObjectsNum() / 50;
 	while (!track.Loaded() && success)
 	{
-		int displayevery = track.ObjectsNum() / 50;
+		int count = track.ObjectsNumLoaded();
 		if (displayevery == 0 || count % displayevery == 0)
 		{
 			LoadingScreen(count, track.ObjectsNum(), false, "", 0.5, 0.5);
 		}
 		success = track.ContinueDeferredLoad();
-		count++;
 	}
 
 	if (!success)
@@ -2079,7 +2072,7 @@ bool GAME::LoadTrack(const std::string & trackname)
 
 	// Generate the track map.
 	if (!trackmap.BuildMap(
-			track.GetRoadList(),
+			track.GetRoads(),
 			window.GetW(),
 			window.GetH(),
 			trackname,

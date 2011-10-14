@@ -2,6 +2,7 @@
 #define _PERFORMANCE_TESTING_H
 
 #include "car.h"
+#include "tracksurface.h"
 
 #include <string>
 #include <ostream>

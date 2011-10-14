@@ -1,9 +1,7 @@
 #ifndef _TRACKSURFACE_H
 #define _TRACKSURFACE_H
 
-#include <string>
-
-class TRACKSURFACE
+struct TRACKSURFACE
 {
 public:
 	enum TYPE
@@ -17,17 +15,6 @@ public:
 		COBBLES = 6,
 		NumTypes
 	};
-
-	void setType(const std::string & value)
-	{
-		if (value == "asphalt")			type = ASPHALT;
-		else if (value == "grass")		type = GRASS;
-		else if (value == "gravel")		type = GRAVEL;
-		else if (value == "concrete") 	type = CONCRETE;
-		else if (value == "sand")		type = SAND;
-		else if (value == "cobbles")	type = COBBLES;
-		else							type = NONE;
-	}
 
 	static const TRACKSURFACE * None()
 	{

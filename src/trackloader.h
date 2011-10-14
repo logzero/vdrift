@@ -29,7 +29,6 @@ model = body.joe
 #size = 1, 1, 1 # axis aligned bounding box
 */
 
-class DynamicsWorld;
 class ContentManager;
 class btStridingMeshInterface;
 class btCompoundShape;
@@ -40,7 +39,6 @@ class TRACK::LOADER
 public:
 	LOADER(
 		ContentManager & content,
-		DynamicsWorld & world,
 		DATA & data,
 		std::ostream & info_output,
 		std::ostream & error_output,
@@ -66,7 +64,6 @@ public:
 
 private:
 	ContentManager & content;
-	DynamicsWorld & world;
 	DATA & data;
 	std::ostream & info_output;
 	std::ostream & error_output;
@@ -76,7 +73,6 @@ private:
 	const std::string & texturedir;
 	const std::string & sharedobjectpath;
 	const int anisotropy;
-	const bool reverse;
 	const bool dynamic_objects;
 	const bool dynamic_shadows;
 	const bool agressive_combining;
