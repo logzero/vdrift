@@ -97,7 +97,7 @@ public:
 		return n.normalize();
 	}
 
-private:
+//private:
 	btVector3 n200, n020, n002, n110, n011, n101;
 };
 
@@ -120,8 +120,8 @@ public:
 		btScalar w10 = -p10.dot(n1);
 		btScalar w12 = -p12.dot(n1);
 		btScalar w21 = p12.dot(n2);
-		btScalar w20 = -p20.dot(n0);
-		btScalar w02 = p20.dot(n2);
+		btScalar w20 = -p20.dot(n2);
+		btScalar w02 = p20.dot(n0);
 
 		// vertex coefficients
 		b300 = p0;
@@ -129,17 +129,17 @@ public:
 		b003 = p2;
 
 		// tangent coefficients
-		b210 = (p0 * 2 + p1 - n0 * w01);// * 1/3;
-		b120 = (p1 * 2 + p0 - n1 * w10);// * 1/3;
-		b021 = (p1 * 2 + p2 - n1 * w12);// * 1/3;
-		b012 = (p2 * 2 + p1 - n2 * w21);// * 1/3;
-		b102 = (p2 * 2 + p0 - n2 * w20);// * 1/3;
-		b201 = (p0 * 2 + p2 - n0 * w02);// * 1/3;
+		b210 = (p0 * 2 + p1 - n0 * w01) * 1/3;
+		b120 = (p1 * 2 + p0 - n1 * w10) * 1/3;
+		b021 = (p1 * 2 + p2 - n1 * w12) * 1/3;
+		b012 = (p2 * 2 + p1 - n2 * w21) * 1/3;
+		b102 = (p2 * 2 + p0 - n2 * w20) * 1/3;
+		b201 = (p0 * 2 + p2 - n0 * w02) * 1/3;
 
 		// center coefficient
-		btVector3 e = (b210 + b120 + b021 + b012 + b102 + b201) * 1/3;// * 1/2;
-		btVector3 v = (p0 + p1 + p2);// * 1/3;
-		b111 = e * 1.5 - v;//b111 = e + (e - v) * 1/2;
+		btVector3 e = (b210 + b120 + b021 + b012 + b102 + b201) * 1/3 * 1/2;
+		btVector3 v = (p0 + p1 + p2) * 1/3;
+		b111 = e + (e - v) * 1/2;
 	}
 
 	// Barycentric coordinates of p
@@ -154,13 +154,13 @@ public:
 		btScalar w = 1 - u - v;
 		btVector3 p =
 			b300 * w * w * w + b030 * u * u * u + b003 * v * v * v +
-			b210 * w * w * u + b120 * w * u * u + b201 * w * w * v +//b210 * 3 * w * w * u + b120 * 3 * w * u * u + b201 * 3 * w * w * v +
-			b021 * u * u * v + b102 * w * v * v + b012 * u * v * v +//b021 * 3 * u * u * v + b102 * 3 * w * v * v + b012 * 3 * u * v * v +
-			b111 * w * u * v;//b111 * 6 * w * u * v;
+			b210 * 3 * w * w * u + b120 * 3 * w * u * u + b201 * 3 * w * w * v +
+			b021 * 3 * u * u * v + b102 * 3 * w * v * v + b012 * 3 * u * v * v +
+			b111 * 6 * w * u * v;
 		return p;
 	}
 
-private:
+//private:
 	btVector3 b300, b030, b003;
 	btVector3 b210, b120, b021, b012, b102, b201;
 	btVector3 b111;

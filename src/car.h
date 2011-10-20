@@ -296,6 +296,12 @@ protected:
 	std::list<LIGHT> lights;
 	std::list<std::tr1::shared_ptr<MODEL> > models;
 
+	// debug mesh contact interpolation
+	keyed_container<DRAWABLE>::handle contact;
+	keyed_container<DRAWABLE>::handle normal0;
+	keyed_container<DRAWABLE>::handle normal1;
+	keyed_container<DRAWABLE>::handle normal2;
+
 	SUSPENSIONBUMPDETECTION suspensionbumpdetection[4];
 	CRASHDETECTION crashdetection;
 	CAMERA_SYSTEM cameras;

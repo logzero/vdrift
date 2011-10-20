@@ -515,6 +515,15 @@ bool CAR::LoadGraphics(
 		}
 	}
 
+	// debug mesh contact interpolation
+	DRAWABLE drawable;
+	drawable.SetColor(1, 0, 0);
+	drawable.SetDrawEnable(true);
+	contact = topnode.GetDrawlist().normal_noblend_nolighting.insert(drawable);
+	normal0 = topnode.GetDrawlist().normal_noblend_nolighting.insert(drawable);
+	normal1 = topnode.GetDrawlist().normal_noblend_nolighting.insert(drawable);
+	normal2 = topnode.GetDrawlist().normal_noblend_nolighting.insert(drawable);
+
 	// load steering wheel
 	const PTree * cfg_steer;
 	if (cfg.get("steering", cfg_steer))
@@ -897,6 +906,33 @@ void CAR::UpdateGraphics()
 		ni->GetTransform().SetTranslation(pos);
 		ni->GetTransform().SetRotation(rot);
 	}
+
+	// debug mesh contact interpolation
+	const Triangle & tri = dynamics.GetWheelRay(WHEEL_POSITION(0)).m_triangle;
+	DRAWABLE & contactref = topnode.GetDrawlist().normal_noblend_nolighting.get(contact);
+	contactref.ClearLine();
+	contactref.AddLinePoint(ToMathVector<float>(tri.b300));
+	contactref.AddLinePoint(ToMathVector<float>(tri.b210));
+	contactref.AddLinePoint(ToMathVector<float>(tri.b120));
+	contactref.AddLinePoint(ToMathVector<float>(tri.b030));
+	contactref.AddLinePoint(ToMathVector<float>(tri.b021));
+	contactref.AddLinePoint(ToMathVector<float>(tri.b012));
+	contactref.AddLinePoint(ToMathVector<float>(tri.b003));
+	contactref.AddLinePoint(ToMathVector<float>(tri.b102));
+	contactref.AddLinePoint(ToMathVector<float>(tri.b201));
+	contactref.AddLinePoint(ToMathVector<float>(tri.b300));
+	DRAWABLE & normal0ref = topnode.GetDrawlist().normal_noblend_nolighting.get(normal0);
+	normal0ref.ClearLine();
+	normal0ref.AddLinePoint(ToMathVector<float>(tri.b300));
+	normal0ref.AddLinePoint(ToMathVector<float>(tri.b300 + tri.n200));
+	DRAWABLE & normal1ref = topnode.GetDrawlist().normal_noblend_nolighting.get(normal1);
+	normal1ref.ClearLine();
+	normal1ref.AddLinePoint(ToMathVector<float>(tri.b030));
+	normal1ref.AddLinePoint(ToMathVector<float>(tri.b030 + tri.n020));
+	DRAWABLE & normal2ref = topnode.GetDrawlist().normal_noblend_nolighting.get(normal2);
+	normal2ref.ClearLine();
+	normal2ref.AddLinePoint(ToMathVector<float>(tri.b003));
+	normal2ref.AddLinePoint(ToMathVector<float>(tri.b003 + tri.n002));
 
 	// brake/reverse lights
 	SCENENODE & bodynoderef = topnode.GetNode(bodynode);

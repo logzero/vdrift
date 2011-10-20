@@ -55,7 +55,7 @@ btScalar CarWheelRay::addSingleResult(btCollisionWorld::LocalRayResult& rayResul
 	m_collisionObject = rayResult.m_collisionObject;
 	m_surface = si->surface;
 	m_patch = si->patch;
-/*
+
 	// Point and normal interpolation
 	const VERTEXARRAY & va = (si->model)->GetVertexArray();
 	int i = rayResult.m_localShapeInfo->m_triangleIndex;
@@ -81,7 +81,7 @@ btScalar CarWheelRay::addSingleResult(btCollisionWorld::LocalRayResult& rayResul
 	m_triangle.getBarycentric(m_hitPoint, u, v);
 	m_hitNormal = m_triangle.getNormal(u, v);
 	m_hitPoint = m_triangle.getPoint(u, v);
-*/
+
 	btScalar f = getFraction(m_rayFrom, m_rayTo, m_hitPoint, m_hitNormal);
 	rayResult.m_hitFraction = f;
 	m_depth = m_rayLen * f;

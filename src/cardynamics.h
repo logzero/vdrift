@@ -98,6 +98,7 @@ public:
 	const CARTIRE & GetTire(WHEEL_POSITION pos) const {return tire[pos];}
 	const TRACKSURFACE & GetSurface(WHEEL_POSITION pos) const {return wheel_ray[pos].getSurface();}
 	const BEZIER * GetPatch(WHEEL_POSITION pos) const {return wheel_ray[pos].getPatch();}
+	const CarWheelRay & GetWheelRay(WHEEL_POSITION pos) const {return wheel_ray[pos];}
 
 	// traction control
 	void SetABS(const bool newabs);
