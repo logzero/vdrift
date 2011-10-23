@@ -1,6 +1,6 @@
 #include "updatemanagement.h"
-
 #include "svn_sourceforge.h"
+#include "config.h"
 #include "gui.h"
 #include "http.h"
 #include "pathmanager.h"
@@ -14,35 +14,35 @@ bool UPDATE_MANAGER::Init(const std::string & updatefilebase, const std::string 
 {
 	updatefile = newupdatefile;
 	updatefilebackup = newupdatefilebackup;
-	
+
 	// first try to load car/track versions from the tracking file in the user folder
 	if (!autoupdate.Load(updatefile))
 	{
 		info_output << "Update status file " << updatefile << " will be created" << std::endl;
-		
+
 		// if that failed, use the version info that came with the release
 		if (!autoupdate.Load(updatefilebase))
 		{
 			error_output << "Unable to load update manager base file: " << updatefilebase << "; updates will start from scratch" << std::endl;
-			
+
 			return false;
 		}
 	}
-	
+
 	return true;
 }
 
 void UPDATE_MANAGER::StartCheckForUpdates(GAME_DOWNLOADER downloader, GUI & gui)
 {
 	const bool verbose = true;
-	
+
 	gui.ActivatePage("Downloading", 0.25, error_output);
 
 	// download the SVN folder views to a temporary folder
 	std::string group = "cars";
 	// TODO: track support
 	repo_type svn;
-	std::string url = svn.GetCarFolderUrl();
+	std::string url = autoupdate.GetUrl()+"/cars";
 	bool success = downloader(url);
 
 	if (success)
@@ -51,7 +51,7 @@ void UPDATE_MANAGER::StartCheckForUpdates(GAME_DOWNLOADER downloader, GUI & gui)
 		info_output << "Checking for updates..." << std::endl;
 		std::string page = UTILS::LoadFileIntoString(downloader.GetHttp().GetDownloadPath(url), error_output);
 		std::map <std::string, int> res = svn.ParseFolderView(page);
-		
+
 		// check the current SVN picture against what's in our update manager to find things we can update
 		autoupdate.SetAvailableUpdates(group, res);
 		std::pair <std::vector <std::string>,std::vector <std::string> > updates = autoupdate.CheckUpdate(group);
@@ -65,7 +65,7 @@ void UPDATE_MANAGER::StartCheckForUpdates(GAME_DOWNLOADER downloader, GUI & gui)
 			UTILS::print_vector(updates.second, info_output);
 			info_output << "]" << std::endl;
 		}
-		
+
 		if (updates.first.empty())
 		{
 			gui.ActivatePage("UpdatesNotFound", 0.25, error_output);
@@ -80,10 +80,10 @@ void UPDATE_MANAGER::StartCheckForUpdates(GAME_DOWNLOADER downloader, GUI & gui)
 			updatesummary << " available";
 			gui.SetLabelText("UpdatesFound", "LabelText", updatesummary.str());
 		}
-		
+
 		// store the new set of available updates
 		autoupdate.Write(updatefile);
-		
+
 		// attempt to download updates.config
 		DownloadRemoteConfig(downloader, gui);
 	}
@@ -97,30 +97,30 @@ void UPDATE_MANAGER::ShowCarManager(GUI & gui)
 {
 	const bool verbose = false;
 	const std::string group = "cars";
-	
+
 	// build a list of current cars, including those that we don't have yet but know about
 	std::set <std::string> allcars;
-	
+
 	// start off with the list of cars we have on disk
 	const std::list <std::pair <std::string, std::string> > & cardisklist = valuelists["cars"];
 	for (std::list <std::pair <std::string, std::string> >::const_iterator i = cardisklist.begin(); i != cardisklist.end(); i++)
 	{
 		allcars.insert(i->second);
 	}
-	
+
 	// now add in the cars in the remote repo
 	std::map <std::string, int> remote = autoupdate.GetAvailableUpdates(group);
 	for (std::map <std::string, int>::const_iterator i = remote.begin(); i != remote.end(); i++)
 	{
 		allcars.insert(i->first);
 	}
-	
+
 	if (allcars.empty())
 	{
 		error_output << "ShowCarManager: No cars!" << std::endl;
 		return;
 	}
-	
+
 	// find the car at index car_manager_cur_car
 	std::string thecar;
 	int count = 0;
@@ -134,7 +134,7 @@ void UPDATE_MANAGER::ShowCarManager(GUI & gui)
 			thecar = *i;
 		}
 	}
-	
+
 	if (verbose)
 	{
 		info_output << "All cars: ";
@@ -146,14 +146,14 @@ void UPDATE_MANAGER::ShowCarManager(GUI & gui)
 		}
 		info_output << std::endl;
 	}
-	
+
 	if (!thecar.empty())
 	{
 		std::pair <int, int> revs = autoupdate.GetVersions(group, thecar);
 		gui.ActivatePage("CarManager", 0.0001, error_output);
 		gui.SetLabelText("CarManager", "carlabel",  thecar);
 		gui.SetLabelText("CarManager", "version", "Version: " + UTILS::tostr(revs.first));
-		
+
 		if (!revs.second)
 		{
 			// either they haven't checked for updates or the car is local only
@@ -196,15 +196,15 @@ bool UPDATE_MANAGER::ApplyCarUpdate(GAME_DOWNLOADER downloader, GUI & gui, const
 		error_output << "Couldn't find the name of the car to update" << std::endl;
 		return false;
 	}
-	
+
 	std::pair <int, int> revs = autoupdate.GetVersions(group, carname);
-	
+
 	if (revs.first == revs.second)
 	{
 		error_output << "ApplyCarUpdate: " << carname << " is already up to date" << std::endl;
 		return false;
 	}
-	
+
 	// check that we have a recent enough release
 	if (!DownloadRemoteConfig(downloader, gui))
 	{
@@ -226,9 +226,9 @@ bool UPDATE_MANAGER::ApplyCarUpdate(GAME_DOWNLOADER downloader, GUI & gui, const
 		gui.ActivatePage("UpdateFailedVersion", 0.25, error_output);
 		return false;
 	}
-	
+
 	// download archive
-	std::string url = repo_type::GetCarDownloadLink(carname);
+	std::string url = repo_type::GetCarDownloadLink(autoupdate.GetUrl(), carname);
 	std::string archivepath = downloader.GetHttp().GetDownloadPath(url);
 	if (!(debug && pathmanager.FileExists(archivepath))) // if in debug mode, don't redownload files
 	{
@@ -242,7 +242,7 @@ bool UPDATE_MANAGER::ApplyCarUpdate(GAME_DOWNLOADER downloader, GUI & gui, const
 		}
 	}
 	info_output << "ApplyCarUpdate: download successful: " << archivepath << std::endl;
-	
+
 	// decompress and write output
 	if (!Decompress(archivepath, pathmanager.GetWriteableCarsPath(), info_output, error_output))
 	{
@@ -250,19 +250,19 @@ bool UPDATE_MANAGER::ApplyCarUpdate(GAME_DOWNLOADER downloader, GUI & gui, const
 		gui.ActivatePage("DataConnectionError", 0.25, error_output);
 		return false;
 	}
-	
+
 	// record update
 	if (!autoupdate.empty())
 		autoupdate.Write(updatefilebackup); // save a backup before changing it
 	autoupdate.SetVersion(group, carname, revs.second);
 	autoupdate.Write(updatefile);
-	
+
 	// remove temporary file
 	if (!debug)
 	{
 		PATHMANAGER::DeleteFile1(archivepath);
 	}
-	
+
 	gui.ActivatePage("UpdateSuccessful", 0.25, error_output);
 	return true;
 }
@@ -274,8 +274,8 @@ bool UPDATE_MANAGER::DownloadRemoteConfig(GAME_DOWNLOADER downloader, GUI & gui)
 		info_output << "DownloadRemoteConfig: already have the remote updates.config" << std::endl;
 		return true;
 	}
-	
-	std::string url = repo_type::GetRemoteUpdateConfigUrl();
+
+	std::string url = autoupdate.GetUrl() + "settings/updates.config";
 	info_output << "DownloadRemoteConfig: attempting to download " + url << std::endl;
 	bool success = downloader(url);
 	if (!success)
@@ -283,17 +283,17 @@ bool UPDATE_MANAGER::DownloadRemoteConfig(GAME_DOWNLOADER downloader, GUI & gui)
 		error_output << "DownloadRemoteConfig: download failed" << std::endl;
 		return false;
 	}
-	
+
 	std::string filepath = downloader.GetHttp().GetDownloadPath(url);
 	info_output << "DownloadRemoteConfig: download successful: " << filepath << std::endl;
-	
+
 	std::string updatesconfig = UTILS::LoadFileIntoString(filepath, error_output);
 	if (updatesconfig.empty())
 	{
 		error_output << "DownloadRemoteConfig: empty updates.config" << std::endl;
 		return false;
 	}
-	
+
 	std::stringstream f(updatesconfig);
 	CONFIG * conf = new CONFIG();
 	remoteconfig.reset(conf);
@@ -302,8 +302,8 @@ bool UPDATE_MANAGER::DownloadRemoteConfig(GAME_DOWNLOADER downloader, GUI & gui)
 		error_output << "DownloadRemoteConfig: failed to load updates.config" << std::endl;
 		return false;
 	}
-	
+
 	PATHMANAGER::DeleteFile1(filepath);
-	
+
 	return true;
 }

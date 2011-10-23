@@ -1,10 +1,12 @@
 #include "graphics_gl3v.h"
 #include "joeserialize.h"
 #include "unordered_map.h"
-
+#include "utils.h"
 #include <sstream>
 #include <vector>
 #include <map>
+#include <algorithm>
+#include <cctype>
 
 #define enableContributionCull true
 
@@ -262,6 +264,7 @@ void GRAPHICS_GL3V::SetupScene(float fov, float new_view_distance, const MATHVEC
 	const CameraMatrices & defaultCamera = cameras.find("default")->second;
 	renderer.setGlobalUniform(RenderUniformEntry(stringMap.addStringId("invProjectionMatrix"), defaultCamera.inverseProjectionMatrix.GetArray(),16));
 	renderer.setGlobalUniform(RenderUniformEntry(stringMap.addStringId("invViewMatrix"), defaultCamera.inverseViewMatrix.GetArray(),16));
+	renderer.setGlobalUniform(RenderUniformEntry(stringMap.addStringId("defaultViewMatrix"), defaultCamera.viewMatrix.GetArray(),16));
 
 	// send sun light direction for the default camera
 
@@ -562,6 +565,11 @@ bool GRAPHICS_GL3V::GetUsingShaders() const
 	return true;
 }
 
+int upper(int c)
+{
+  return std::toupper((unsigned char)c);
+}
+
 bool GRAPHICS_GL3V::ReloadShaders(const std::string & shaderpath, std::ostream & info_output, std::ostream & error_output)
 {
 	// reinitialize the entire renderer
@@ -585,8 +593,16 @@ bool GRAPHICS_GL3V::ReloadShaders(const std::string & shaderpath, std::ostream &
 				}
 			}
 		}
+		
+		std::set <std::string> allcapsConditions;
+		for (std::set <std::string>::const_iterator i = conditions.begin(); i != conditions.end(); i++)
+		{
+			std::string s = *i;
+			std::transform(s.begin(), s.end(), s.begin(), upper);
+			allcapsConditions.insert(s);
+		}
 
-		bool initSuccess = renderer.initialize(passInfos, stringMap, shaderpath+"/gl3", w, h, error_output);
+		bool initSuccess = renderer.initialize(passInfos, stringMap, shaderpath+"/gl3", w, h, allcapsConditions, error_output);
 		if (initSuccess)
 		{
 			// assign cameras to each pass

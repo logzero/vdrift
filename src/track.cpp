@@ -167,20 +167,20 @@ int TRACK::ObjectsNumLoaded() const
 
 void TRACK::Clear()
 {
-	for(int i = 0, n = data.objects.size(); i < n; ++i)
+	for (int i = 0, n = data.objects.size(); i < n; ++i)
 	{
 		data.dynamics.removeCollisionObject(data.objects[i]);
 		delete data.objects[i];
 	}
 	data.objects.clear();
 
-	for(int i = 0, n = data.shapes.size(); i < n; ++i)
+	for (int i = 0, n = data.shapes.size(); i < n; ++i)
 	{
 		delete data.shapes[i];
 	}
 	data.shapes.clear();
 
-	for(int i = 0, n = data.meshes.size(); i < n; ++i)
+	for (int i = 0, n = data.meshes.size(); i < n; ++i)
 	{
 		delete data.meshes[i];
 	}

@@ -26,7 +26,7 @@ public:
 
 	~TRACK();
 
-	/// use Loaded() to see if loading is complete yet.
+	/// Use Loaded() to see if loading is complete yet
 	bool StartDeferredLoad(
 		ContentManager & content,
 		std::ostream & info_output,
@@ -43,13 +43,13 @@ public:
 
 	bool ContinueDeferredLoad();
 
-	/// number of objects to load in total
+	/// Number of objects to load in total
 	int ObjectsNum() const;
 
-	/// number of objects loaded
+	/// Number of objects loaded
 	int ObjectsNumLoaded() const;
 
-	/// track loading status
+	/// Track loading status
 	bool Loaded() const
 	{
 		return data.loaded;

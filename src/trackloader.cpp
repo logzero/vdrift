@@ -816,13 +816,13 @@ bool TRACK::LOADER::LoadParameters()
 	std::stringstream sp_name;
 	sp_name << "start position " << sp_num;
 	std::vector<float> f3(3);
-	while(param.get(sp_name.str(), f3))
+	while (param.get(sp_name.str(), f3))
 	{
 		std::stringstream so_name;
 		so_name << "start orientation " << sp_num;
 		QUATERNION <float> q;
 		std::vector <float> angle(3, 0.0);
-		if(param.get(so_name.str(), angle, error_output))
+		if (param.get(so_name.str(), angle, error_output))
 		{
 			q.SetEulerZYX(angle[0] * M_PI/180, angle[1] * M_PI/180, angle[2] * M_PI/180);
 		}
@@ -921,10 +921,9 @@ bool TRACK::LOADER::LoadRoads()
 		return false;
 	}
 
-	int numroads;
-
+	int numroads = 0;
 	trackfile >> numroads;
-
+	data.roads.reserve(numroads);
 	for (int i = 0; i < numroads && trackfile; i++)
 	{
 		data.roads.push_back(ROADSTRIP());
@@ -1000,36 +999,41 @@ bool TRACK::LOADER::LoadLapSequence()
 	param.get("cull faces", data.cull);
 
 	int lapmarkers = 0;
-	if (param.get("lap sequences", lapmarkers))
+	if (!param.get("lap sequences", lapmarkers))
 	{
-		for (int l = 0; l < lapmarkers; l++)
-		{
-			std::vector<float> lapraw(3);
-			std::stringstream lapname;
-			lapname << "lap sequence " << l;
-			param.get(lapname.str(), lapraw);
-			int roadid = lapraw[0];
-			int patchid = lapraw[1];
+		info_output << "No lap sequence found; lap timing will not be possible" << std::endl;
+		return true;
+	}
 
-			//info_output << "Looking for lap sequence: " << roadid << ", " << patchid << endl;
-			int curroad = 0;
-			for (std::vector<ROADSTRIP>::iterator i = data.roads.begin(); i != data.roads.end(); ++i)
+	for (int l = 0; l < lapmarkers; l++)
+	{
+		std::stringstream lapname;
+		lapname << "lap sequence " << l;
+		std::vector<float> lapraw(3);
+		if (!param.get(lapname.str(), lapraw, error_output))
+		{
+			continue;
+		}
+
+		int roadid = lapraw[0];
+		int patchid = lapraw[1];
+		int curroad = 0;
+		for (std::vector<ROADSTRIP>::iterator i = data.roads.begin(); i != data.roads.end(); ++i)
+		{
+			if (curroad == roadid)
 			{
-				if (curroad == roadid)
+				int curpatch = 0;
+				for (std::vector<ROADPATCH>::const_iterator p = i->GetPatches().begin(); p != i->GetPatches().end(); ++p)
 				{
-					int curpatch = 0;
-					for (std::vector<ROADPATCH>::const_iterator p = i->GetPatches().begin(); p != i->GetPatches().end(); ++p)
+					if (curpatch == patchid)
 					{
-						if (curpatch == patchid)
-						{
-							data.lap.push_back(&p->GetPatch());
-							//info_output << "Lap sequence found: " << roadid << ", " << patchid << "= " << &p->GetPatch() << endl;
-						}
-						curpatch++;
+						data.lap.push_back(&p->GetPatch());
+						//info_output << "Lap sequence found: " << roadid << ", " << patchid << "= " << &p->GetPatch() << endl;
 					}
+					curpatch++;
 				}
-				curroad++;
 			}
+			curroad++;
 		}
 	}
 
@@ -1043,7 +1047,7 @@ bool TRACK::LOADER::LoadLapSequence()
 		BEZIER* curr_patch = start_patch->next_patch;
 		float total_dist = start_patch->length;
 		int count = 0;
-		while ( curr_patch && curr_patch != start_patch)
+		while (curr_patch && curr_patch != start_patch)
 		{
 			count++;
 			curr_patch->dist_from_start = total_dist;
@@ -1052,11 +1056,7 @@ bool TRACK::LOADER::LoadLapSequence()
 		}
 	}
 
-	if (lapmarkers == 0)
-		info_output << "No lap sequence found; lap timing will not be possible" << std::endl;
-	else
-		info_output << "Track timing sectors: " << lapmarkers << std::endl;
-
+	info_output << "Track timing sectors: " << lapmarkers << std::endl;
 	return true;
 }
 

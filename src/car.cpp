@@ -378,7 +378,7 @@ static bool LoadCameras(
 	int i = 1;
 	std::string istr = "1";
 	std::string view_name;
-	while(cfg.GetParam("view.name-" + istr, view_name))
+	while (cfg.GetParam("view.name-" + istr, view_name))
 	{
 		float pos[3], angle[3];
 		if (!cfg.GetParam("view.position-" + istr, pos)) continue;
@@ -504,7 +504,7 @@ bool CAR::LoadGraphics(
 
 	// load drawables
 	LoadBody loadBody(topnode, bodynode, loadDrawable);
-	for(PTree::const_iterator i = cfg.begin(); i != cfg.end(); ++i)
+	for (PTree::const_iterator i = cfg.begin(); i != cfg.end(); ++i)
 	{
 		if (i->first != "body" &&
 			i->first != "steering" &&
@@ -1276,7 +1276,7 @@ void CAR::HandleInputs(const std::vector <float> & inputs, float dt)
 	//std::cout << "Shift up: " << inputs[CARINPUT::SHIFT_UP] << std::endl;
 
 	// recover from a rollover
-	if(inputs[CARINPUT::ROLLOVER_RECOVER])
+	if (inputs[CARINPUT::ROLLOVER_RECOVER])
 		dynamics.RolloverRecover();
 
 	//set brakes
@@ -1361,7 +1361,7 @@ void CAR::HandleInputs(const std::vector <float> & inputs, float dt)
 			}
 			brakesound_check = true;
 		}
-		if(inputs[CARINPUT::BRAKE] <= 0)
+		if (inputs[CARINPUT::BRAKE] <= 0)
 			brakesound_check = false;
 	}
 
@@ -1378,7 +1378,7 @@ void CAR::HandleInputs(const std::vector <float> & inputs, float dt)
 			}
 			handbrakesound_check = true;
 		}
-		if(inputs[CARINPUT::HANDBRAKE] <= 0)
+		if (inputs[CARINPUT::HANDBRAKE] <= 0)
 			handbrakesound_check = false;
 	}
 }
