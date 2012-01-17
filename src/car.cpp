@@ -830,7 +830,7 @@ bool CAR::LoadSounds(
 		tiresqueal[i].Loop(true);
 		tiresqueal[i].SetGain(0);
 		int samples = soundptr->GetSoundInfo().samples;
-		tiresqueal[i].SeekToSample((samples/4)*i);
+		tiresqueal[i].SeekToSample((samples/wheel_count)*i);
 		tiresqueal[i].Play();
 	}
 
@@ -844,7 +844,7 @@ bool CAR::LoadSounds(
 		gravelsound[i].Loop(true);
 		gravelsound[i].SetGain(0);
 		int samples = soundptr->GetSoundInfo().samples;
-		gravelsound[i].SeekToSample((samples/4)*i);
+		gravelsound[i].SeekToSample((samples/wheel_count)*i);
 		gravelsound[i].Play();
 	}
 
@@ -858,7 +858,7 @@ bool CAR::LoadSounds(
 		grasssound[i].Loop(true);
 		grasssound[i].SetGain(0);
 		int samples = soundptr->GetSoundInfo().samples;
-		grasssound[i].SeekToSample((samples/4)*i);
+		grasssound[i].SeekToSample((samples/wheel_count)*i);
 		grasssound[i].Play();
 	}
 
