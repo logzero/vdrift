@@ -47,7 +47,7 @@ void ROADPATCH::AddRacinglineScenenode(
 
 	float vcorners[12];
 	float uvs[8];
-	int bfaces[6];
+	unsigned bfaces[6];
 
 	//std::cout << v0 << std::endl;
 

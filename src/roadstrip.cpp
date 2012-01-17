@@ -9,25 +9,25 @@ bool ROADSTRIP::ReadFrom(std::istream & openfile, std::ostream & error_output)
 	int num = 0;
 	openfile >> num;
 
-	//add all road patches to this strip
-	int badcount = 0;
 	patches.clear();
 	patches.reserve(num);
+
+	//add all road patches to this strip
+	int badcount = 0;
 	for (int i = 0; i < num; ++i)
 	{
-		ROADPATCH p;
-		p.GetPatch().ReadFrom(openfile);
-		if (p.GetPatch().CheckForProblems())
+		BEZIER * prevbezier = 0;
+		if (!patches.empty()) prevbezier = &patches.back().GetPatch();
+
+		patches.push_back(ROADPATCH());
+		patches.back().GetPatch().ReadFrom(openfile);
+
+		if (prevbezier) prevbezier->Attach(patches.back().GetPatch());
+
+		if (patches.back().GetPatch().CheckForProblems())
 		{
 			badcount++;
-			continue;
-		}
-
-		patches.push_back(p);
-		int n = i - badcount;
-		if (n > 0)
-		{
-			patches[n-1].GetPatch().Attach(patches[n].GetPatch());
+			patches.pop_back();
 		}
 	}
 

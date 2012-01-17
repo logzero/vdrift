@@ -14,43 +14,18 @@
 #include <vector>
 #include <cassert>
 
-Uint8 ExtractComponent(Uint32 value, Uint32 mask, Uint32 shift, Uint32 loss)
-{
-	Uint32 temp = value & mask;
-	temp = temp >> shift;
-	temp = temp << loss;
-	return (Uint8) temp;
-}
-
-//save the component to the value using the given mask, shift, loss, and return the resulting value
-Uint32 InsertComponent(Uint32 value, Uint8 component, Uint32 mask, Uint32 shift, Uint32 loss)
-{
-	Uint32 temp = component;
-	temp = temp >> loss;
-	temp = temp << shift;
-	return (value & ~mask) | temp;
-}
-
-struct COMPONENTINFO
-{
-	Uint32 mask;
-	Uint32 shift;
-	Uint32 loss;
-};
-
-static float Scale(const std::string & size, float width, float height)
+static float Scale(TEXTUREINFO::Size size, float width, float height)
 {
 	float maxsize, minscale;
-
-	if (size == "medium")
-	{
-		maxsize = 256;
-		minscale = 0.5;
-	}
-	else if (size == "small")
+	if (size == TEXTUREINFO::SMALL)
 	{
 		maxsize = 128;
 		minscale = 0.25;
+	}
+	else if (size == TEXTUREINFO::MEDIUM)
+	{
+		maxsize = 256;
+		minscale = 0.5;
 	}
 	else
 	{
@@ -70,149 +45,116 @@ static bool IsPowerOfTwo(int x)
 	return ((x != 0) && !(x & (x - 1)));
 }
 
+static int GetPowerOfTwo(int size, int maxsize)
+{
+	if (IsPowerOfTwo(size)) return size;
+	
+	int newsize = 1;
+	while (newsize <= maxsize && newsize <= size)
+	{
+		newsize = newsize * 2;
+	}
+	return newsize;
+}
+
+// cube map face enums
+static const GLenum cubetarget[6] = {
+	GL_TEXTURE_CUBE_MAP_NEGATIVE_X,
+	GL_TEXTURE_CUBE_MAP_POSITIVE_X,
+	GL_TEXTURE_CUBE_MAP_NEGATIVE_Y,
+	GL_TEXTURE_CUBE_MAP_POSITIVE_Y,
+	GL_TEXTURE_CUBE_MAP_NEGATIVE_Z,
+	GL_TEXTURE_CUBE_MAP_POSITIVE_Z
+};
+// vertical cross cube map relative face offsets
+static const int cubeoffsetx[6] = {0, 2, 1, 1, 1, 1};
+static const int cubeoffsety[6] = {1, 1, 2, 0, 3, 1};
+
 bool TEXTURE::LoadCubeVerticalCross(const std::string & path, const TEXTUREINFO & info, std::ostream & error)
 {
-	std::string cubefile = path;
+	SDL_Surface * texture_surface = IMG_Load(path.c_str());
+	if (!texture_surface)
+	{
+		error << "Error loading texture file: " + path << std::endl;
+		return false;
+	}
 
+	// detect channels
+	int format = GL_RGB;
+	switch (texture_surface->format->BytesPerPixel)
+	{
+		case 1:
+			format = GL_LUMINANCE;
+			break;
+		case 2:
+			format = GL_LUMINANCE_ALPHA;
+			break;
+		case 3:
+			format = GL_RGB;
+			break;
+		case 4:
+			format = GL_RGBA;
+			break;
+		default:
+			error << "Texture has unknown format: " + path << std::endl;
+			return false;
+			break;
+	}
+
+	// gen texture
 	GLuint new_handle = 0;
 	glGenTextures(1, &new_handle);
 	OPENGL_UTILITY::CheckForOpenGLErrors("Cubemap ID generation", error);
 	id = new_handle;
 
 	glBindTexture(GL_TEXTURE_CUBE_MAP, new_handle);
-
-	SDL_Surface * texture_surface = IMG_Load(cubefile.c_str());
-	if (texture_surface)
+	
+	w = texture_surface->w/3;
+	h = texture_surface->h/4;
+	unsigned char * face = new unsigned char[w*h*texture_surface->format->BytesPerPixel];
+	for (int i = 0; i < 6; ++i)
 	{
-		for (int i = 0; i < 6; ++i)
+		int offsetx = cubeoffsetx[i] * w;
+		int offsety = cubeoffsety[i] * h;
+		if (i == 4) //special case for negative z
 		{
-			w = texture_surface->w/3;
-			h = texture_surface->h/4;
-
-			//detect channels
-			int format = GL_RGB;
-			switch (texture_surface->format->BytesPerPixel)
+			for (unsigned int yi = 0; yi < h; yi++)
 			{
-				case 1:
-					format = GL_LUMINANCE;
-					break;
-				case 2:
-					format = GL_LUMINANCE_ALPHA;
-					break;
-				case 3:
-					format = GL_RGB;
-					break;
-				case 4:
-					format = GL_RGBA;
-					break;
-				default:
-					error << "Texture has unknown format: " + path << std::endl;
-					return false;
-					break;
-			}
-
-			if (format != GL_RGB)
-			{
-				//throw EXCEPTION(__FILE__, __LINE__, "Cube map texture format isn't GL_RGB (this causes problems for some reason): " + texture_path + " (" + cubefile + ")");
-				//game.WriteDebuggingData("Warning:  Cube map texture format isn't GL_RGB (this causes problems for some reason): " + texture_path + " (" + cubefile + ")");
-			}
-
-			int offsetx = 0;
-			int offsety = 0;
-
-			GLenum targetparam;
-			if (i == 0)
-			{
-				targetparam = GL_TEXTURE_CUBE_MAP_NEGATIVE_X;
-				offsetx = 0;
-				offsety = h;
-			}
-			else if (i == 1)
-			{
-				targetparam = GL_TEXTURE_CUBE_MAP_POSITIVE_X;
-				offsetx = w*2;
-				offsety = h;
-			}
-			else if (i == 2)
-			{
-				targetparam = GL_TEXTURE_CUBE_MAP_NEGATIVE_Y;
-				offsetx = w;
-				offsety = h*2;
-			}
-			else if (i == 3)
-			{
-				targetparam = GL_TEXTURE_CUBE_MAP_POSITIVE_Y;
-				offsetx = w;
-				offsety = 0;
-			}
-			else if (i == 4)
-			{
-				targetparam = GL_TEXTURE_CUBE_MAP_NEGATIVE_Z;
-				offsetx = w;
-				offsety = h*3;
-			}
-			else if (i == 5)
-			{
-				targetparam = GL_TEXTURE_CUBE_MAP_POSITIVE_Z;
-				offsetx = w;
-				offsety = h;
-			}
-			else
-			{
-				error << "Texture has unknown format: " + path << std::endl;
-				return false;
-			}
-
-			unsigned char * cubeface = new unsigned char[w*h*texture_surface->format->BytesPerPixel];
-
-			if (i == 4) //special case for negative z
-			{
-				for (unsigned int yi = 0; yi < h; yi++)
+				for (unsigned int xi = 0; xi < w; xi++)
 				{
-					for (unsigned int xi = 0; xi < w; xi++)
+					for (unsigned int ci = 0; ci < texture_surface->format->BytesPerPixel; ci++)
 					{
-						for (unsigned int ci = 0; ci < texture_surface->format->BytesPerPixel; ci++)
-						{
-							int idx1 = ((h-yi-1)+offsety)*texture_surface->w*texture_surface->format->BytesPerPixel + (w-xi-1+offsetx)*texture_surface->format->BytesPerPixel + ci;
-							int idx2 = yi*w*texture_surface->format->BytesPerPixel+xi*texture_surface->format->BytesPerPixel+ci;
-							cubeface[idx2] = ((unsigned char *)(texture_surface->pixels))[idx1];
-							//cout << idx1 << "," << idx2 << endl;
-						}
+						int idx1 = ((h-yi-1)+offsety)*texture_surface->w*texture_surface->format->BytesPerPixel + (w-xi-1+offsetx)*texture_surface->format->BytesPerPixel + ci;
+						int idx2 = yi*w*texture_surface->format->BytesPerPixel+xi*texture_surface->format->BytesPerPixel+ci;
+						face[idx2] = ((unsigned char *)(texture_surface->pixels))[idx1];
+						//cout << idx1 << "," << idx2 << endl;
 					}
 				}
 			}
-			else
-			{
-				for (unsigned int yi = 0; yi < h; yi++)
-				{
-					for (unsigned int xi = 0; xi < w; xi++)
-					{
-						for (unsigned int ci = 0; ci < texture_surface->format->BytesPerPixel; ci++)
-						{
-							int idx1 = (yi+offsety)*texture_surface->w*texture_surface->format->BytesPerPixel+(xi+offsetx)*texture_surface->format->BytesPerPixel+ci;
-							int idx2 = yi*w*texture_surface->format->BytesPerPixel+xi*texture_surface->format->BytesPerPixel+ci;
-							cubeface[idx2] = ((unsigned char *)(texture_surface->pixels))[idx1];
-							//cout << idx1 << "," << idx2 << endl;
-						}
-					}
-				}
-			}
-			glTexImage2D( targetparam, 0, format, w, h, 0, format, GL_UNSIGNED_BYTE, cubeface );
-			delete [] cubeface;
 		}
-	}
-	else
-	{
-		error << "Error loading texture file: " + path << std::endl;
-		return false;
+		else
+		{
+			for (unsigned int yi = 0; yi < h; yi++)
+			{
+				for (unsigned int xi = 0; xi < w; xi++)
+				{
+					for (unsigned int ci = 0; ci < texture_surface->format->BytesPerPixel; ci++)
+					{
+						int idx1 = (yi+offsety)*texture_surface->w*texture_surface->format->BytesPerPixel+(xi+offsetx)*texture_surface->format->BytesPerPixel+ci;
+						int idx2 = yi*w*texture_surface->format->BytesPerPixel+xi*texture_surface->format->BytesPerPixel+ci;
+						face[idx2] = ((unsigned char *)(texture_surface->pixels))[idx1];
+						//cout << idx1 << "," << idx2 << endl;
+					}
+				}
+			}
+		}
+		glTexImage2D(cubetarget[i], 0, format, w, h, 0, format, GL_UNSIGNED_BYTE, face);
 	}
 
-	if (texture_surface)
-	{
-		// Free up any memory we may have used
-		SDL_FreeSurface( texture_surface );
-		texture_surface = NULL;
-	}
+	// Free up any memory we may have used
+	delete [] face;
+	SDL_FreeSurface(texture_surface);
+	texture_surface = NULL;
 
 	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
@@ -240,11 +182,6 @@ bool TEXTURE::LoadCubeVerticalCross(const std::string & path, const TEXTUREINFO 
 
 bool TEXTURE::LoadCube(const std::string & path, const TEXTUREINFO & info, std::ostream & error)
 {
-	if (info.verticalcross)
-	{
-		return LoadCubeVerticalCross(path, info, error);
-	}
-
 	std::string cubefiles[6];
 	cubefiles[0] = path+"-xp.png";
 	cubefiles[1] = path+"-xn.png";
@@ -263,80 +200,55 @@ bool TEXTURE::LoadCube(const std::string & path, const TEXTUREINFO & info, std::
 	for (unsigned int i = 0; i < 6; ++i)
 	{
 		SDL_Surface * texture_surface = IMG_Load(cubefiles[i].c_str());
-		if (texture_surface)
-		{
-			//store dimensions
-			if (i != 0 && (w != (unsigned int) texture_surface->w || h != (unsigned int) texture_surface->h))
-			{
-				error << "Cube map sides aren't equal sizes" << std::endl;
-				return false;
-			}
-			w = texture_surface->w;
-			h = texture_surface->h;
-
-			//detect channels
-			int format = GL_RGB;
-			switch (texture_surface->format->BytesPerPixel)
-			{
-				case 1:
-					format = GL_LUMINANCE;
-					break;
-				case 2:
-					format = GL_LUMINANCE_ALPHA;
-					break;
-				case 3:
-					format = GL_RGB;
-					break;
-				case 4:
-					format = GL_RGBA;
-					break;
-				default:
-					error << "Texture has unknown format: " + path + " (" + cubefiles[i] + ")" << std::endl;
-					return false;
-					break;
-			}
-
-			if (format != GL_RGB)
-			{
-				error << "Cube map texture format isn't GL_RGB (this causes problems for some reason): " + path + " (" + cubefiles[i] + ")" << std::endl;
-				return false;
-			}
-
-			// Create MipMapped Texture
-
-			GLenum targetparam;
-			if (i == 0)
-				targetparam = GL_TEXTURE_CUBE_MAP_NEGATIVE_X;
-			else if (i == 1)
-				targetparam = GL_TEXTURE_CUBE_MAP_POSITIVE_X;
-			else if (i == 2)
-				targetparam = GL_TEXTURE_CUBE_MAP_NEGATIVE_Y;
-			else if (i == 3)
-				targetparam = GL_TEXTURE_CUBE_MAP_POSITIVE_Y;
-			else if (i == 4)
-				targetparam = GL_TEXTURE_CUBE_MAP_NEGATIVE_Z;
-			else if (i == 5)
-				targetparam = GL_TEXTURE_CUBE_MAP_POSITIVE_Z;
-			else
-			{
-				error << "Iterated too far: " + path + " (" + cubefiles[i] + ")" << std::endl;
-				assert(0);
-			}
-
-			glTexImage2D( targetparam, 0, format,texture_surface->w, texture_surface->h, 0, format, GL_UNSIGNED_BYTE, texture_surface->pixels );
-		}
-		else
+		if (!texture_surface)
 		{
 			error << "Error loading texture file: " + path + " (" + cubefiles[i] + ")" << std::endl;
 			return false;
 		}
 
-		if (texture_surface)
+		//store dimensions
+		if (i != 0 && (w != (unsigned int)texture_surface->w || h != (unsigned int)texture_surface->h))
 		{
-			// Free up any memory we may have used
-			SDL_FreeSurface( texture_surface );
-			texture_surface = NULL;
+			error << "Cube map sides aren't equal sizes" << std::endl;
+			return false;
 		}
+		w = texture_surface->w;
+		h = texture_surface->h;
+
+		//detect channels
+		int format = GL_RGB;
+		switch (texture_surface->format->BytesPerPixel)
+		{
+			case 1:
+				format = GL_LUMINANCE;
+				break;
+			case 2:
+				format = GL_LUMINANCE_ALPHA;
+				break;
+			case 3:
+				format = GL_RGB;
+				break;
+			case 4:
+				format = GL_RGBA;
+				break;
+			default:
+				error << "Texture has unknown format: " + path + " (" + cubefiles[i] + ")" << std::endl;
+				return false;
+				break;
+		}
+
+		if (format != GL_RGB)
+		{
+			error << "Cube map texture format isn't GL_RGB (this causes problems for some reason): " + path + " (" + cubefiles[i] + ")" << std::endl;
+			return false;
+		}
+
+		// Create texture
+		glTexImage2D(cubetarget[i], 0, format,texture_surface->w, texture_surface->h, 0, format, GL_UNSIGNED_BYTE, texture_surface->pixels);
+
+		// Free up any memory we may have used
+		SDL_FreeSurface(texture_surface);
+		texture_surface = NULL;
 	}
 
 	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -355,20 +267,20 @@ bool TEXTURE::LoadCube(const std::string & path, const TEXTUREINFO & info, std::
 void GenTexture(const SDL_Surface * surface, const TEXTUREINFO & info, GLuint & id, bool & alphachannel, std::ostream & error)
 {
 	//detect channels
-	bool compression = (surface->w > 512 || surface->h > 512) && !info.normalmap;
+	bool compress = (surface->w > 512 || surface->h > 512) && !info.normalmap;
 	bool srgb = info.srgb;
 	int format;
-	int internalformat = compression ? (srgb ? GL_COMPRESSED_SRGB : GL_COMPRESSED_RGB) : (srgb ? GL_SRGB8 : GL_RGB);
+	int internalformat = compress ? (srgb ? GL_COMPRESSED_SRGB : GL_COMPRESSED_RGB) : (srgb ? GL_SRGB8 : GL_RGB);
 	switch (surface->format->BytesPerPixel)
 	{
 		case 1:
 			format = GL_LUMINANCE;
-			internalformat = compression ? GL_COMPRESSED_LUMINANCE : GL_LUMINANCE;
+			internalformat = compress ? GL_COMPRESSED_LUMINANCE : GL_LUMINANCE;
 			alphachannel = false;
 			break;
 		case 2:
 			format = GL_LUMINANCE_ALPHA;
-			internalformat = compression ? GL_COMPRESSED_LUMINANCE_ALPHA : GL_LUMINANCE_ALPHA;
+			internalformat = compress ? GL_COMPRESSED_LUMINANCE_ALPHA : GL_LUMINANCE_ALPHA;
 			alphachannel = true;
 			break;
 		case 3:
@@ -377,7 +289,7 @@ void GenTexture(const SDL_Surface * surface, const TEXTUREINFO & info, GLuint & 
 #else
 			format = GL_RGB;
 #endif
-            internalformat = compression ? (srgb ? GL_COMPRESSED_SRGB : GL_COMPRESSED_RGB) : (srgb ? GL_SRGB8 : GL_RGB);
+            internalformat = compress ? (srgb ? GL_COMPRESSED_SRGB : GL_COMPRESSED_RGB) : (srgb ? GL_SRGB8 : GL_RGB);
 			alphachannel = false;
 			break;
 		case 4:
@@ -386,7 +298,7 @@ void GenTexture(const SDL_Surface * surface, const TEXTUREINFO & info, GLuint & 
 #else
 			format = GL_RGBA;
 #endif
-			internalformat = compression ? (srgb ? GL_COMPRESSED_SRGB_ALPHA : GL_COMPRESSED_RGBA) : (srgb ? GL_SRGB8_ALPHA8 : GL_RGBA);
+			internalformat = compress ? (srgb ? GL_COMPRESSED_SRGB_ALPHA : GL_COMPRESSED_RGBA) : (srgb ? GL_SRGB8_ALPHA8 : GL_RGBA);
 			alphachannel = true;
 			break;
 		default:
@@ -424,8 +336,11 @@ void GenTexture(const SDL_Surface * surface, const TEXTUREINFO & info, GLuint & 
 			glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_LINEAR);
 			glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
 		}
-		if (!glGenerateMipmap) // this kind of automatic mipmap generation is deprecated in GL3, so don't use it
+		if (!glGenerateMipmap)
+		{
+			// this kind of automatic mipmap generation is deprecated in GL3, so don't use it
 			glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_TRUE);
+		}
 	}
 	else
 	{
@@ -463,20 +378,43 @@ bool TEXTURE::Load(const std::string & path, const TEXTUREINFO & info, std::ostr
 		return false;
 	}
 
-	if (path.empty() && !info.surface)
+	if (path.empty() && !info.data)
 	{
 		error << "Tried to load a texture with an empty name" << std::endl;
 		return false;
 	}
 
 	id = 0;
-	if (info.cube)
+	cube = info.cube;
+	if (info.cube && info.verticalcross)
 	{
-		cube = true;
+		return LoadCubeVerticalCross(path, info, error);
+	}
+	else if (info.cube)
+	{
 		return LoadCube(path, info, error);
 	}
 
-	SDL_Surface * orig_surface = info.surface;
+	SDL_Surface * orig_surface = 0;
+	if (info.data)
+	{
+		Uint32 rmask, gmask, bmask, amask;
+#if SDL_BYTEORDER == SDL_BIG_ENDIAN
+		rmask = 0xff000000;
+		gmask = 0x00ff0000;
+		bmask = 0x0000ff00;
+		amask = 0x000000ff;
+#else
+		rmask = 0x000000ff;
+		gmask = 0x0000ff00;
+		bmask = 0x00ff0000;
+		amask = 0xff000000;
+#endif
+		orig_surface = SDL_CreateRGBSurfaceFrom(
+							info.data, info.width, info.height,
+							info.bytespp * 8, info.width * info.bytespp,
+							rmask, gmask, bmask, amask);
+	}
 	if (!orig_surface)
 	{
 		orig_surface = IMG_Load(path.c_str());
@@ -487,7 +425,7 @@ bool TEXTURE::Load(const std::string & path, const TEXTUREINFO & info, std::ostr
 		}
 	}
 
-	SDL_Surface * texture_surface(orig_surface);
+	SDL_Surface * texture_surface = orig_surface;
 	if (orig_surface)
 	{
 	    origw = texture_surface->w;
@@ -498,27 +436,13 @@ bool TEXTURE::Load(const std::string & path, const TEXTUREINFO & info, std::ostr
 					(info.npot && (GLEW_VERSION_2_0 || GLEW_ARB_texture_non_power_of_two));
 		if (!norescale)
 	    {
-	        int newx = orig_surface->w;
-	        int maxsize = 2048;
-	        if (!IsPowerOfTwo(orig_surface->w))
-	        {
-	            for (newx = 1; newx <= maxsize && newx <= orig_surface->w; newx = newx * 2)
-	            {
-	            }
-	        }
-
-	        int newy = orig_surface->h;
-	        if (!IsPowerOfTwo(orig_surface->h))
-	        {
-	            for (newy = 1; newy <= maxsize && newy <= orig_surface->h; newy = newy * 2)
-	            {
-	            }
-	        }
-
+			int maxsize = 2048;
+	        int newx = GetPowerOfTwo(orig_surface->w, maxsize);
+	        int newy = GetPowerOfTwo(orig_surface->h, maxsize);
 	        float scalew = ((float)newx+0.5) / orig_surface->w;
 	        float scaleh = ((float)newy+0.5) / orig_surface->h;
 
-	        SDL_Surface * pot_surface = zoomSurface (orig_surface, scalew, scaleh, SMOOTHING_ON);
+	        SDL_Surface * pot_surface = zoomSurface(orig_surface, scalew, scaleh, SMOOTHING_ON);
 
 	        assert(IsPowerOfTwo(pot_surface->w));
 	        assert(IsPowerOfTwo(pot_surface->h));
@@ -529,10 +453,10 @@ bool TEXTURE::Load(const std::string & path, const TEXTUREINFO & info, std::ostr
 	    }
 
 		//scale texture down if necessary
-		scale = Scale(info.size, orig_surface->w, orig_surface->h);
+		scale = Scale(info.maxsize, orig_surface->w, orig_surface->h);
 		if (scale < 1.0)
 		{
-			texture_surface = zoomSurface (orig_surface, scale, scale, SMOOTHING_ON);
+			texture_surface = zoomSurface(orig_surface, scale, scale, SMOOTHING_ON);
 		}
 
 		//store dimensions
@@ -549,7 +473,7 @@ bool TEXTURE::Load(const std::string & path, const TEXTUREINFO & info, std::ostr
 	}
 
 	//free the original surface if it's not a custom surface (used for the track map)
-	if (!info.surface && orig_surface)
+	if (!info.data && orig_surface)
 	{
 		SDL_FreeSurface(orig_surface);
 	}

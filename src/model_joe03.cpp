@@ -357,7 +357,7 @@ void MODEL_JOE03::ReadData ( FILE * m_FilePointer, const JOEPACK * pack, JOEObje
 	vector <VERT_ENTRY> vert_master ((size_type)(Object.frames[frame].num_verts));
 	vert_master.reserve(Object.frames[frame].num_verts*2);
 
-	vector <int> v_faces((size_type)(Object.info.num_faces*3));
+	vector <unsigned> v_faces((size_type)(Object.info.num_faces*3));
 
 	for (int i = 0; i < Object.info.num_faces; i++)
 	{

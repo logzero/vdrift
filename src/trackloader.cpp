@@ -1,18 +1,32 @@
 #include "trackloader.h"
-#include "dynamicsworld.h"
 #include "loadcollisionshape.h"
 #include "contentmanager.h"
 #include "textureinfo.h"
+#include "sim/world.h"
 #include "tobullet.h"
 #include "k1999.h"
 
-inline std::istream & operator >> (std::istream & lhs, btVector3 & rhs)
+#include "BulletCollision/CollisionShapes/btTriangleIndexVertexArray.h"
+#include "BulletCollision/CollisionShapes/btBvhTriangleMeshShape.h"
+#include "BulletCollision/CollisionShapes/btCompoundShape.h"
+#include "BulletCollision/CollisionShapes/btBoxShape.h"
+
+static inline std::istream & operator >> (std::istream & lhs, btVector3 & rhs)
 {
-	char sep;
-	return lhs >> rhs[0] >> sep >> rhs[1] >> sep >> rhs[2];
+	for (size_t i = 0; i < 3; ++i)
+	{
+		std::string str;
+		std::getline(lhs, str, ',');
+
+		std::stringstream s(str);
+		btScalar val(0);
+		s >> val;
+		rhs[i] = val;
+	}
+	return lhs;
 }
 
-inline std::istream & operator >> (std::istream & lhs, std::vector<std::string> & rhs)
+static inline std::istream & operator >> (std::istream & lhs, std::vector<std::string> & rhs)
 {
 	for (size_t i = 0; i < rhs.size() && !lhs.eof(); ++i)
 	{
@@ -29,7 +43,7 @@ static btIndexedMesh GetIndexedMesh(const MODEL & model)
 {
 	const float * vertices;
 	int vcount;
-	const int * faces;
+	const unsigned * faces;
 	int fcount;
 	model.GetVertexArray().GetVertices(vertices, vcount);
 	model.GetVertexArray().GetFaces(faces, fcount);
@@ -39,7 +53,7 @@ static btIndexedMesh GetIndexedMesh(const MODEL & model)
 	btIndexedMesh mesh;
 	mesh.m_numTriangles = fcount / 3;
 	mesh.m_triangleIndexBase = (const unsigned char *)faces;
-	mesh.m_triangleIndexStride = sizeof(int) * 3;
+	mesh.m_triangleIndexStride = sizeof(unsigned) * 3;
 	mesh.m_numVertices = vcount;
 	mesh.m_vertexBase = (const unsigned char *)vertices;
 	mesh.m_vertexStride = sizeof(float) * 3;
@@ -49,6 +63,7 @@ static btIndexedMesh GetIndexedMesh(const MODEL & model)
 
 TRACK::LOADER::LOADER(
 	ContentManager & content,
+	sim::World & world,
 	DATA & data,
 	std::ostream & info_output,
 	std::ostream & error_output,
@@ -62,6 +77,7 @@ TRACK::LOADER::LOADER(
 	const bool dynamic_shadows,
 	const bool agressive_combining) :
 	content(content),
+	world(world),
 	data(data),
 	info_output(info_output),
 	error_output(error_output),
@@ -70,6 +86,7 @@ TRACK::LOADER::LOADER(
 	texturedir(texturedir),
 	sharedobjectpath(sharedobjectpath),
 	anisotropy(anisotropy),
+	reverse(reverse),
 	dynamic_objects(dynamic_objects),
 	dynamic_shadows(dynamic_shadows),
 	agressive_combining(agressive_combining),
@@ -85,7 +102,6 @@ TRACK::LOADER::LOADER(
 {
 	objectpath = trackpath + "/objects";
 	objectdir = trackdir + "/objects";
-	data.reverse_direction = reverse;
 }
 
 TRACK::LOADER::~LOADER()
@@ -158,10 +174,19 @@ bool TRACK::LOADER::ContinueLoad()
 
 	if (!loadstatus.second)
 	{
-		// register shape info
-		for (size_t i = 0; i < data.shapes.size(); ++i)
+		if (agressive_combining)
 		{
-			data.shapes[i]->setUserPointer(&data.shape_info[i]);
+			std::map<std::string, OBJECT>::iterator i;
+			for (i = combined.begin(); i != combined.end(); ++i)
+			{
+				std::tr1::shared_ptr<MODEL> & model = i->second.model;
+				if (!model->HaveMeshMetrics())
+				{
+					// cache combined model
+					content.load(model, objectdir, i->first, model->GetVertexArray());
+				}
+				AddObject(i->second);
+			}
 		}
 		data.loaded = true;
 		Clear();
@@ -207,9 +232,10 @@ std::pair<bool, bool> TRACK::LOADER::ContinueObjectLoad()
 
 bool TRACK::LOADER::Begin()
 {
-	file_open_basic fopen(objectpath, sharedobjectpath);
-	if (read_ini("objects.txt", fopen, track_config))
+	std::ifstream track_file(objectpath.c_str());
+	if (track_file)
 	{
+		read_ini(track_file, track_config);
 		//write_inf(track_config, std::cerr);
 		nodes = 0;
 		if (track_config.get("object", nodes))
@@ -244,8 +270,8 @@ std::pair<bool, bool> TRACK::LOADER::Continue()
 bool TRACK::LOADER::LoadModel(const std::string & name)
 {
 	std::tr1::shared_ptr<MODEL> model;
-	if ((packload && content.load(objectdir, name, pack, model)) ||
-		content.load(objectdir, name, model))
+	if ((packload && content.load(model, objectdir, name, pack)) ||
+		content.load(model, objectdir, name))
 	{
 		data.models.push_back(model);
 		return true;
@@ -264,14 +290,13 @@ bool TRACK::LOADER::LoadShape(const PTree & cfg, const MODEL & model, BODY & bod
 
 		int surface = 0;
 		cfg.get("surface", surface);
-		if (surface >= (int)data.surfaces.size()) surface = 0;
-
-		TrackShapeInfo shape_info;
-		shape_info.model = &model;
-		shape_info.surface = &data.surfaces[surface];
-		data.shape_info.push_back(shape_info);
+		if (surface >= (int)data.surfaces.size())
+		{
+			surface = 0;
+		}
 
 		btBvhTriangleMeshShape * shape = new btBvhTriangleMeshShape(mesh, true);
+		shape->setUserPointer((void*)&data.surfaces[surface]);
 		data.shapes.push_back(shape);
 		body.shape = shape;
 	}
@@ -333,9 +358,8 @@ TRACK::LOADER::body_iterator TRACK::LOADER::LoadBody(const PTree & cfg)
 	std::stringstream s(texture_name);
 	s >> texture_names;
 
-	// set relative path for models and textures
+	// set relative path for models and textures, ugly hack
 	// need to identify body references
-	// begin ugly hack
 	std::string name;
 	if (cfg.value() == "body" && cfg.parent())
 	{
@@ -354,7 +378,6 @@ TRACK::LOADER::body_iterator TRACK::LOADER::LoadBody(const PTree & cfg)
 			if (!texture_names[2].empty()) texture_names[2] = rel_path + texture_names[2];
 		}
 	}
-	// end ugly hack
 
 	if (dynamic_shadows && isashadow)
 	{
@@ -383,7 +406,7 @@ TRACK::LOADER::body_iterator TRACK::LOADER::LoadBody(const PTree & cfg)
 	texinfo.repeatv = clampuv != 1 && clampuv != 3;
 
 	std::tr1::shared_ptr<TEXTURE> diffuse;
-	if (!content.load(objectdir, texture_names[0], texinfo, diffuse))
+	if (!content.load(diffuse, objectdir, texture_names[0], texinfo))
 	{
 		info_output << "Failed to load body " << cfg.value() << " texture " << texture_names[0] << std::endl;
 		return bodies.end();
@@ -392,13 +415,13 @@ TRACK::LOADER::body_iterator TRACK::LOADER::LoadBody(const PTree & cfg)
 	std::tr1::shared_ptr<TEXTURE> miscmap1;
 	if (texture_names[1].length() > 0)
 	{
-		content.load(objectdir, texture_names[1], texinfo, miscmap1);
+		content.load(miscmap1, objectdir, texture_names[1], texinfo);
 	}
 
 	std::tr1::shared_ptr<TEXTURE> miscmap2;
 	if (texture_names[2].length() > 0)
 	{
-		content.load(objectdir, texture_names[2], texinfo, miscmap2);
+		content.load(miscmap2, objectdir, texture_names[2], texinfo);
 	}
 
 	// setup drawable
@@ -489,14 +512,13 @@ bool TRACK::LOADER::LoadNode(const PTree & sec)
 			btTransform transform;
 			transform.setOrigin(ToBulletVector(position));
 			transform.setRotation(ToBulletQuaternion(rotation));
-
 			btCollisionObject * object = new btCollisionObject();
 			object->setActivationState(DISABLE_SIMULATION);
 			object->setWorldTransform(transform);
 			object->setCollisionShape(body.shape);
-			//object->setUserPointer(body.shape->getUserPointer());
+			object->setUserPointer(body.shape->getUserPointer());
 			data.objects.push_back(object);
-			data.dynamics.addCollisionObject(object);
+			world.addCollisionObject(object);
 		}
 	}
 	else
@@ -510,7 +532,7 @@ bool TRACK::LOADER::LoadNode(const PTree & sec)
 		if (dynamic_objects)
 		{
 			// dynamic geometry
-			data.body_transforms.push_back(MotionState());
+			data.body_transforms.push_back(sim::MotionState());
 			data.body_transforms.back().rotation = ToBulletQuaternion(rotation);
 			data.body_transforms.back().position = ToBulletVector(position);
 			data.body_transforms.back().massCenterOffset = -body.center;
@@ -521,7 +543,7 @@ bool TRACK::LOADER::LoadNode(const PTree & sec)
 			btRigidBody * object = new btRigidBody(info);
 			object->setContactProcessingThreshold(0.0);
 			data.objects.push_back(object);
-			data.dynamics.addRigidBody(object);
+			world.addRigidBody(object);
 
 			keyed_container<SCENENODE>::handle node_handle = data.dynamic_node.AddNode();
 			SCENENODE & node = data.dynamic_node.GetNode(node_handle);
@@ -541,9 +563,9 @@ bool TRACK::LOADER::LoadNode(const PTree & sec)
 			object->setActivationState(DISABLE_SIMULATION);
 			object->setWorldTransform(transform);
 			object->setCollisionShape(body.shape);
-			//object->setUserPointer(body.shape->getUserPointer());
+			object->setUserPointer(body.shape->getUserPointer());
 			data.objects.push_back(object);
-			data.dynamics.addCollisionObject(object);
+			world.addCollisionObject(object);
 
 			keyed_container <SCENENODE>::handle sh = data.static_node.AddNode();
 			SCENENODE & node = data.static_node.GetNode(sh);
@@ -606,14 +628,12 @@ bool TRACK::LOADER::BeginOld()
 
 	data.models.reserve(numobjects);
 
-	if (!GetParam(objectfile, params_per_object)) return false;
-
-	if (params_per_object != expected_params)
+	if (!GetParam(objectfile, params_per_object))
 	{
-		info_output << "Track object list has " << params_per_object << " params per object, expected " << expected_params << ", this is fine, continuing" << std::endl;
+			return false;
 	}
 
-	if (params_per_object < min_params)
+	if (params_per_object != expected_params)
 	{
 		error_output << "Track object list has " << params_per_object << " params per object, expected " << expected_params << std::endl;
 		return false;
@@ -622,133 +642,54 @@ bool TRACK::LOADER::BeginOld()
 	return true;
 }
 
-std::pair<bool, bool> TRACK::LOADER::ContinueOld()
+bool TRACK::LOADER::AddObject(const OBJECT & object)
 {
-	std::string model_name;
-	if (!GetParam(objectfile, model_name))
-	{
-		return std::make_pair(false, false);
-	}
-
-	assert(objectfile.good());
-
-	std::string diffuse_texture_name;
-	bool mipmap;
-	bool nolighting;
-	bool skybox;
-	int transparent_blend;
-	float bump_wavelength;
-	float bump_amplitude;
-	bool driveable;
-	bool collideable;
-	float friction_notread;
-	float friction_tread;
-	float rolling_resistance;
-	float rolling_drag;
-	bool isashadow(false);
-	int clamptexture(0);
-	int surface(0);
-	std::string otherjunk;
-
-	GetParam(objectfile, diffuse_texture_name);
-	GetParam(objectfile, mipmap);
-	GetParam(objectfile, nolighting);
-	GetParam(objectfile, skybox);
-	GetParam(objectfile, transparent_blend);
-	GetParam(objectfile, bump_wavelength);
-	GetParam(objectfile, bump_amplitude);
-	GetParam(objectfile, driveable);
-	GetParam(objectfile, collideable);
-	GetParam(objectfile, friction_notread);
-	GetParam(objectfile, friction_tread);
-	GetParam(objectfile, rolling_resistance);
-	GetParam(objectfile, rolling_drag);
-
-	if (params_per_object >= 15)
-		GetParam(objectfile, isashadow);
-
-	if (params_per_object >= 16)
-		GetParam(objectfile, clamptexture);
-
-	if (params_per_object >= 17)
-		GetParam(objectfile, surface);
-
-	for (int i = 0; i < params_per_object - expected_params; i++)
-		GetParam(objectfile, otherjunk);
-
-	if (dynamic_shadows && isashadow)
-	{
-		return std::make_pair(false, true);
-	}
-
-	std::tr1::shared_ptr<MODEL> model;
-	if (packload)
-	{
-		if (!content.load(objectdir, model_name, pack, model))
-		{
-			return std::make_pair(true, false);
-		}
-	}
-	else
-	{
-		if (!content.load(objectdir, model_name, model))
-		{
-			return std::make_pair(true, false);
-		}
-	}
-	data.models.push_back(model);
+	data.models.push_back(object.model);
 
 	TEXTUREINFO texinfo;
-	texinfo.mipmap = mipmap || anisotropy; //always mipmap if anisotropy is on
+	texinfo.mipmap = object.mipmap || anisotropy; //always mipmap if anisotropy is on
 	texinfo.anisotropy = anisotropy;
-	texinfo.repeatu = clamptexture != 1 && clamptexture != 2;
-	texinfo.repeatv = clamptexture != 1 && clamptexture != 3;
+	texinfo.repeatu = object.clamptexture != 1 && object.clamptexture != 2;
+	texinfo.repeatv = object.clamptexture != 1 && object.clamptexture != 3;
 
 	std::tr1::shared_ptr<TEXTURE> diffuse_texture;
-	if (!content.load(objectdir, diffuse_texture_name, texinfo, diffuse_texture))
+	if (!content.load(diffuse_texture, objectdir, object.texture, texinfo))
 	{
-		error_output << "Skipping object " << model_name << " and continuing" << std::endl;
-		return std::make_pair(false, true);
+		return false;
 	}
 
 	std::tr1::shared_ptr<TEXTURE> miscmap1_texture;
 	{
-		std::string texture_name = diffuse_texture_name.substr(0, std::max(0, (int)diffuse_texture_name.length()-4)) + "-misc1.png";
+		std::string texture_name = object.texture.substr(0, std::max(0, (int)object.texture.length()-4)) + "-misc1.png";
 		std::string filepath = objectpath + "/" + texture_name;
 		if (std::ifstream(filepath.c_str()))
 		{
-			if (!content.load(objectdir, texture_name, texinfo, miscmap1_texture))
-			{
-				error_output << "Error loading texture: " << filepath << " for object " << model_name << ", continuing" << std::endl;
-			}
+			content.load(miscmap1_texture, objectdir, texture_name, texinfo);
 		}
 	}
 
 	std::tr1::shared_ptr<TEXTURE> miscmap2_texture;
 	{
-		std::string texture_name = diffuse_texture_name.substr(0, std::max(0, (int)diffuse_texture_name.length()-4)) + "-misc2.png";
+		std::string texture_name = object.texture.substr(0, std::max(0, (int)object.texture.length()-4)) + "-misc2.png";
 		std::string filepath = objectpath + "/" + texture_name;
 		if (std::ifstream(filepath.c_str()))
 		{
-			if (!content.load(objectdir, texture_name, texinfo, miscmap2_texture))
-			{
-				error_output << "Error loading texture: " << filepath << " for object " << model_name << ", continuing" << std::endl;
-			}
+			content.load(miscmap2_texture, objectdir, texture_name, texinfo);
 		}
 	}
 
 	//use a different drawlist layer where necessary
-	bool transparent = (transparent_blend==1);
+	bool transparent = (object.transparent_blend==1);
 	keyed_container <DRAWABLE> * dlist = &data.static_node.GetDrawlist().normal_noblend;
 	if (transparent)
 	{
 		dlist = &data.static_node.GetDrawlist().normal_blend;
 	}
-	else if (nolighting)
+	else if (object.nolighting)
 	{
 		dlist = &data.static_node.GetDrawlist().normal_noblend_nolighting;
 	}
-	if (skybox)
+	if (object.skybox)
 	{
 		if (transparent)
 		{
@@ -761,37 +702,110 @@ std::pair<bool, bool> TRACK::LOADER::ContinueOld()
 	}
 	keyed_container <DRAWABLE>::handle dref = dlist->insert(DRAWABLE());
 	DRAWABLE & drawable = dlist->get(dref);
-	drawable.SetModel(*model);
+	drawable.SetModel(*object.model);
 	drawable.SetDiffuseMap(diffuse_texture);
 	drawable.SetMiscMap1(miscmap1_texture);
 	drawable.SetMiscMap2(miscmap2_texture);
 	drawable.SetDecal(transparent);
-	drawable.SetCull(data.cull && (transparent_blend!=2), false);
-	drawable.SetRadius(model->GetRadius());
-	drawable.SetObjectCenter(model->GetCenter());
-	drawable.SetSkybox(skybox);
-	drawable.SetVerticalTrack(skybox && data.vertical_tracking_skyboxes);
+	drawable.SetCull(data.cull && (object.transparent_blend!=2), false);
+	drawable.SetRadius(object.model->GetRadius());
+	drawable.SetObjectCenter(object.model->GetCenter());
+	drawable.SetSkybox(object.skybox);
+	drawable.SetVerticalTrack(object.skybox && data.vertical_tracking_skyboxes);
 
-	if (collideable || driveable)
+	if (object.collideable)
 	{
 		btTriangleIndexVertexArray * mesh = new btTriangleIndexVertexArray();
-		mesh->addIndexedMesh(GetIndexedMesh(*model));
+		mesh->addIndexedMesh(GetIndexedMesh(*object.model));
 		data.meshes.push_back(mesh);
 
-		assert(surface >= 0 && surface < (int)data.surfaces.size());
-		TrackShapeInfo shape_info;
-		shape_info.model = model.get();
-		shape_info.surface = &data.surfaces[surface];
-		data.shape_info.push_back(shape_info);
-
+		assert(object.surface >= 0 && object.surface < (int)data.surfaces.size());
 		btBvhTriangleMeshShape * shape = new btBvhTriangleMeshShape(mesh, true);
+		shape->setUserPointer((void*)&data.surfaces[object.surface]);
 		data.shapes.push_back(shape);
 
-		btCollisionObject * object = new btCollisionObject();
-		object->setActivationState(DISABLE_SIMULATION);
-		object->setCollisionShape(shape);
-		data.objects.push_back(object);
-		data.dynamics.addCollisionObject(object);
+		btCollisionObject * co = new btCollisionObject();
+		co->setActivationState(DISABLE_SIMULATION);
+		co->setCollisionShape(shape);
+		co->setUserPointer(shape->getUserPointer());
+		data.objects.push_back(co);
+		world.addCollisionObject(co);
+	}
+	return true;
+}
+
+std::pair<bool, bool> TRACK::LOADER::ContinueOld()
+{
+	std::string model_name;
+	if (!GetParam(objectfile, model_name))
+	{
+		return std::make_pair(false, false);
+	}
+
+	OBJECT object;
+	bool isashadow;
+	std::string junk;
+
+	GetParam(objectfile, object.texture);
+	GetParam(objectfile, object.mipmap);
+	GetParam(objectfile, object.nolighting);
+	GetParam(objectfile, object.skybox);
+	GetParam(objectfile, object.transparent_blend);
+	GetParam(objectfile, junk);//bump_wavelength);
+	GetParam(objectfile, junk);//bump_amplitude);
+	GetParam(objectfile, junk);//driveable);
+	GetParam(objectfile, object.collideable);
+	GetParam(objectfile, junk);//friction_notread);
+	GetParam(objectfile, junk);//friction_tread);
+	GetParam(objectfile, junk);//rolling_resistance);
+	GetParam(objectfile, junk);//rolling_drag);
+	GetParam(objectfile, isashadow);
+	GetParam(objectfile, object.clamptexture);
+	GetParam(objectfile, object.surface);
+	for (int i = 0; i < params_per_object - expected_params; i++)
+	{
+		GetParam(objectfile, junk);
+	}
+
+	if (dynamic_shadows && isashadow)
+	{
+		return std::make_pair(false, true);
+	}
+
+	if (packload)
+	{
+		if (!content.load(object.model, objectdir, model_name, pack))
+		{
+			return std::make_pair(true, false);
+		}
+	}
+	else
+	{
+		if (!content.load(object.model, objectdir, model_name))
+		{
+			return std::make_pair(true, false);
+		}
+	}
+
+	if (agressive_combining)
+	{
+		std::map<std::string, OBJECT>::iterator i = combined.find(object.texture);
+		if (i != combined.end() && !i->second.cached)
+		{
+			i->second.model->SetVertexArray(i->second.model->GetVertexArray() + object.model->GetVertexArray());
+		}
+		else
+		{
+			object.cached = content.get(object.model, objectdir, object.texture);
+			combined[object.texture] = object;
+		}
+	}
+	else
+	{
+		if (!AddObject(object))
+		{
+			return std::make_pair(true, false);
+		}
 	}
 
 	return std::make_pair(false, true);
@@ -870,15 +884,45 @@ bool TRACK::LOADER::LoadSurfaces()
 		data.surfaces.push_back(TRACKSURFACE());
 		TRACKSURFACE & surface = data.surfaces.back();
 
+		// hardcoded for now
 		std::string type;
 		surf_cfg.get("Type", type);
-		if (type == "asphalt")			surface.type = TRACKSURFACE::ASPHALT;
-		else if (type == "grass")		surface.type = TRACKSURFACE::GRASS;
-		else if (type == "gravel")		surface.type = TRACKSURFACE::GRAVEL;
-		else if (type == "concrete") 	surface.type = TRACKSURFACE::CONCRETE;
-		else if (type == "sand")		surface.type = TRACKSURFACE::SAND;
-		else if (type == "cobbles")		surface.type = TRACKSURFACE::COBBLES;
-		else							surface.type = TRACKSURFACE::NONE;
+		if (type == "asphalt")
+		{
+			surface.sound_id = 0;
+			surface.max_gain = 0.3;
+			surface.pitch_variation = 0.4;
+		}
+		else if (type == "grass")
+		{
+			surface.sound_id = 2;
+			surface.max_gain = 0.4;
+			surface.pitch_variation = 0.4;
+		}
+		else if (type == "gravel")
+		{
+			surface.sound_id = 1;
+			surface.max_gain = 0.4;
+			surface.pitch_variation = 0.4;
+		}
+		else if (type == "concrete")
+		{
+			surface.sound_id = 0;
+			surface.max_gain = 0.3;
+			surface.pitch_variation = 0.25;
+		}
+		else if (type == "sand")
+		{
+			surface.sound_id = 2;
+			surface.max_gain = 0.25;
+			surface.pitch_variation = 0.25;
+		}
+		else
+		{
+			surface.sound_id = 0;
+			surface.max_gain = 0.0;
+			surface.pitch_variation = 0.0;
+		}
 
 		float temp = 0.0;
 		surf_cfg.get("BumpWaveLength", temp, error_output);
@@ -921,19 +965,23 @@ bool TRACK::LOADER::LoadRoads()
 		return false;
 	}
 
-	int numroads = 0;
+	int numroads;
+
 	trackfile >> numroads;
-	data.roads.reserve(numroads);
+
 	for (int i = 0; i < numroads && trackfile; i++)
 	{
 		data.roads.push_back(ROADSTRIP());
 		data.roads.back().ReadFrom(trackfile, error_output);
 	}
 
-	if (data.reverse_direction)
+	if (reverse)
 	{
 		ReverseRoads();
+		data.direction = DATA::DIRECTION_REVERSE;
 	}
+	else
+		data.direction = DATA::DIRECTION_FORWARD;
 
 	return true;
 }
@@ -945,7 +993,7 @@ void TRACK::LOADER::ReverseRoads()
 	{
 		int counts = 0;
 
-		for (std::vector<ROADSTRIP>::iterator i = data.roads.begin(); i != data.roads.end(); ++i)
+		for (std::list <ROADSTRIP>::iterator i = data.roads.begin(); i != data.roads.end(); ++i)
 		{
 			optional <const BEZIER *> newstartline = i->FindBezierAtOffset(data.lap[0], -1);
 			if (newstartline)
@@ -999,41 +1047,36 @@ bool TRACK::LOADER::LoadLapSequence()
 	param.get("cull faces", data.cull);
 
 	int lapmarkers = 0;
-	if (!param.get("lap sequences", lapmarkers))
+	if (param.get("lap sequences", lapmarkers))
 	{
-		info_output << "No lap sequence found; lap timing will not be possible" << std::endl;
-		return true;
-	}
-
-	for (int l = 0; l < lapmarkers; l++)
-	{
-		std::stringstream lapname;
-		lapname << "lap sequence " << l;
-		std::vector<float> lapraw(3);
-		if (!param.get(lapname.str(), lapraw, error_output))
+		for (int l = 0; l < lapmarkers; l++)
 		{
-			continue;
-		}
+			std::vector<float> lapraw(3);
+			std::stringstream lapname;
+			lapname << "lap sequence " << l;
+			param.get(lapname.str(), lapraw);
+			int roadid = lapraw[0];
+			int patchid = lapraw[1];
 
-		int roadid = lapraw[0];
-		int patchid = lapraw[1];
-		int curroad = 0;
-		for (std::vector<ROADSTRIP>::iterator i = data.roads.begin(); i != data.roads.end(); ++i)
-		{
-			if (curroad == roadid)
+			//info_output << "Looking for lap sequence: " << roadid << ", " << patchid << endl;
+			int curroad = 0;
+			for (std::list <ROADSTRIP>::iterator i = data.roads.begin(); i != data.roads.end(); ++i)
 			{
-				int curpatch = 0;
-				for (std::vector<ROADPATCH>::const_iterator p = i->GetPatches().begin(); p != i->GetPatches().end(); ++p)
+				if (curroad == roadid)
 				{
-					if (curpatch == patchid)
+					int curpatch = 0;
+					for (std::vector<ROADPATCH>::const_iterator p = i->GetPatches().begin(); p != i->GetPatches().end(); ++p)
 					{
-						data.lap.push_back(&p->GetPatch());
-						//info_output << "Lap sequence found: " << roadid << ", " << patchid << "= " << &p->GetPatch() << endl;
+						if (curpatch == patchid)
+						{
+							data.lap.push_back(&p->GetPatch());
+							//info_output << "Lap sequence found: " << roadid << ", " << patchid << "= " << &p->GetPatch() << endl;
+						}
+						curpatch++;
 					}
-					curpatch++;
 				}
+				curroad++;
 			}
-			curroad++;
 		}
 	}
 
@@ -1047,7 +1090,7 @@ bool TRACK::LOADER::LoadLapSequence()
 		BEZIER* curr_patch = start_patch->next_patch;
 		float total_dist = start_patch->length;
 		int count = 0;
-		while (curr_patch && curr_patch != start_patch)
+		while ( curr_patch && curr_patch != start_patch)
 		{
 			count++;
 			curr_patch->dist_from_start = total_dist;
@@ -1056,21 +1099,25 @@ bool TRACK::LOADER::LoadLapSequence()
 		}
 	}
 
-	info_output << "Track timing sectors: " << lapmarkers << std::endl;
+	if (lapmarkers == 0)
+		info_output << "No lap sequence found; lap timing will not be possible" << std::endl;
+	else
+		info_output << "Track timing sectors: " << lapmarkers << std::endl;
+
 	return true;
 }
 
 bool TRACK::LOADER::CreateRacingLines()
 {
 	TEXTUREINFO texinfo;
-	if (!content.load(texturedir, "racingline.png", texinfo, data.racingline_texture))
+	if (!content.load(data.racingline_texture, texturedir, "racingline.png", texinfo))
 	{
 		return false;
 	}
 
 	K1999 k1999data;
 	int n = 0;
-	for (std::vector<ROADSTRIP>::iterator i = data.roads.begin(); i != data.roads.end(); ++i,++n)
+	for (std::list <ROADSTRIP>::iterator i = data.roads.begin(); i != data.roads.end(); ++i,++n)
 	{
 		if (k1999data.LoadData(&(*i)))
 		{

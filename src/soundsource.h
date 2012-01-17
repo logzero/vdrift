@@ -1,24 +1,18 @@
 #ifndef SOUNDSOURCE_H
 #define SOUNDSOURCE_H
 
-#include "soundbuffer.h"
+#include "sound.h"
 #include "soundfilter.h"
 #include "mathvector.h"
 #include "quaternion.h"
-
+#include "memory.h"
 #include <cassert>
-
-#ifdef _MSC_VER
-#include <memory>
-#else
-#include <tr1/memory>
-#endif
 
 class SOUNDSOURCE
 {
 public:
 	SOUNDSOURCE();
-	void SetBuffer(std::tr1::shared_ptr<SOUNDBUFFER> newbuf) {buffer=newbuf;Loop(false);Stop();}
+	void SetBuffer(std::tr1::shared_ptr<SOUND> newbuf) {buffer=newbuf;Loop(false);Stop();}
 	void SampleAndAdvanceWithPitch16bit(int * chan1, int * chan2, int len);
 	void IncrementWithPitch(int num);
 	void Increment(int num);
@@ -53,7 +47,7 @@ public:
 	bool Audible() const;
 	const std::string GetName() const {if (buffer == NULL) return "NULL"; else return buffer->GetName();}
 
-	const SOUNDBUFFER & GetSoundBuffer() const {return *buffer;}
+	const SOUND & GetSoundBuffer() const {return *buffer;}
 	SOUNDFILTER & AddFilter() {{SOUNDFILTER newfilt;filters.push_back(newfilt);}return filters.back();}
 	SOUNDFILTER & GetFilter(int num);
 	int NumFilters() const {return filters.size();}
@@ -81,7 +75,7 @@ private:
 
 	float relative_gain;
 
-	std::tr1::shared_ptr<SOUNDBUFFER> buffer;
+	std::tr1::shared_ptr<SOUND> buffer;
 	std::list <SOUNDFILTER> filters;
 };
 

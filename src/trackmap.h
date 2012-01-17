@@ -22,7 +22,7 @@ public:
 
 	///w and h are the display device dimensions in pixels.  returns true if successful.
 	bool BuildMap(
-		const std::vector<ROADSTRIP> & roads,
+		const std::list <ROADSTRIP> & roads,
 		int w,
 		int h,
 		const std::string & trackname,

@@ -7,7 +7,7 @@
 #include <fstream>
 
 REPLAY::REPLAY(float framerate) :
-	version_info("VDRIFTREPLAYV13", CARINPUT::GAME_ONLY_INPUTS_START_HERE, framerate),
+	version_info("VDRIFTREPLAYV14", CARINPUT::GAME_ONLY_INPUTS_START_HERE, framerate),
 	frame(0),
 	replaymode(IDLE),
 	inputbuffer(CARINPUT::GAME_ONLY_INPUTS_START_HERE, 0)
@@ -81,7 +81,7 @@ bool REPLAY::LoadHeader(std::istream & instream, std::ostream & error_output)
 	joeserialize::BinaryInputSerializer serialize_input(instream);
 	if (!Serialize(serialize_input))
 	{
-		error_output << "Errro loading replay header " << std::endl;
+		error_output << "Error loading replay header " << std::endl;
 		return false;
 	}
 
@@ -116,7 +116,7 @@ void REPLAY::StartRecording(
 	GetReadyToRecord();
 
 	std::stringstream carstream;
-	carconfig.write(carstream);
+	write_ini(carconfig, carstream);
 	carfile = carstream.str();
 }
 

@@ -15,7 +15,7 @@ bool PARTICLE_SYSTEM::Load(
 	for (std::list <std::string>::const_iterator i = texlist.begin(); i != texlist.end(); ++i)
 	{
 		std::tr1::shared_ptr<TEXTURE> tex;
-		content.load(texpath, *i, texinfo, tex);
+		content.load(tex, texpath, *i, texinfo);
 		textures.push_back(tex);
 	}
 	cur_texture = textures.end();
@@ -144,7 +144,6 @@ QT_TEST(particle_test)
 	std::stringstream out;
 	PARTICLE_SYSTEM s;
 	ContentManager c(out);
-	c.setTexSize("large");
 	s.SetParameters(1.0,1.0,0.5,1.0,1.0,1.0,1.0,1.0,MATHVECTOR<float,3>(0,1,0));
 	s.Load(std::list<std::string> (), std::string(), 0, c, out);
 

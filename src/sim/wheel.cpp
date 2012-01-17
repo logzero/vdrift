@@ -1,0 +1,217 @@
+/************************************************************************/
+/*                                                                      */
+/* This file is part of VDrift.                                         */
+/*                                                                      */
+/* VDrift is free software: you can redistribute it and/or modify       */
+/* it under the terms of the GNU General Public License as published by */
+/* the Free Software Foundation, either version 3 of the License, or    */
+/* (at your option) any later version.                                  */
+/*                                                                      */
+/* VDrift is distributed in the hope that it will be useful,            */
+/* but WITHOUT ANY WARRANTY; without even the implied warranty of       */
+/* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the        */
+/* GNU General Public License for more details.                         */
+/*                                                                      */
+/* You should have received a copy of the GNU General Public License    */
+/* along with VDrift.  If not, see <http://www.gnu.org/licenses/>.      */
+/*                                                                      */
+/************************************************************************/
+
+#include "sim/wheel.h"
+#include "sim/fracturebody.h"
+#include "sim/wheelcontact.h"
+#include "sim/surface.h"
+
+namespace sim
+{
+
+static btRigidBody & getFixedBody()
+{
+	static btRigidBody fixed(0, 0, 0);
+	fixed.setMassProps(0, btVector3(0, 0, 0));
+	return fixed;
+}
+
+Wheel::Wheel() :
+	world(0),
+	body(0),
+	radius(0.3),
+	width(0.2),
+	mass(1)
+{
+	//ctor
+}
+
+void Wheel::init(
+	const WheelInfo & info,
+	btCollisionWorld & nworld,
+	FractureBody & nbody)
+{
+	tire.init(info.tire);
+	suspension.init(info.suspension);
+	brake.init(info.brake);
+	tire.init(info.tire);
+	shaft.setInertia(info.inertia);
+	radius = info.radius;
+	width = info.width;
+	mass = info.mass;
+	world = &nworld;
+	body = &nbody;
+}
+
+bool Wheel::updateContact(btScalar raylen)
+{
+	// update wheel transform
+	transform.setOrigin(body->getCenterOfMassOffset() + suspension.getPosition());
+	transform.setRotation(suspension.getOrientation());
+	transform = body->getCenterOfMassTransform() * transform;
+
+	// wheel contact
+	btVector3 wheelPos = transform.getOrigin();
+	btVector3 rayDir = -transform.getBasis().getColumn(2); // down
+	btScalar rayLen = radius + raylen;
+	btVector3 rayStart = wheelPos - rayDir * radius;
+	ray.set(rayStart, rayDir, rayLen);
+	ray.m_exclude = body;
+	world->rayTest(ray.m_rayFrom, ray.m_rayTo, ray);
+
+	// surface bumpiness
+	btScalar bump = 0;
+	const Surface * surface = ray.getSurface();
+	if (surface)
+	{
+		btScalar posx = ray.getPoint()[0];
+		btScalar posz = ray.getPoint()[2];
+		btScalar phase = 2 * M_PI * (posx + posz) / surface->bumpWaveLength;
+		btScalar shift = 2 * btSin(phase * M_PI_2);
+		btScalar amplitude = 0.25 * surface->bumpAmplitude;
+		bump = amplitude * (btSin(phase + shift) + btSin(M_PI_2 * phase) - 2.0f);
+	}
+
+	// update suspension
+	btScalar relDisplacement = 2 * radius - ray.getDepth() + bump;
+	btScalar displacement = suspension.getDisplacement() + relDisplacement;
+	suspension.setDisplacement(displacement);
+
+	return displacement >= 0;
+}
+
+bool Wheel::update(btScalar dt, WheelContact & contact)
+{
+	if (!updateContact(2 * radius)) return false;
+
+	const Surface * surface = ray.getSurface();
+	btAssert(surface);
+	contact.frictionCoeff = tire.getTread() * surface->frictionTread +
+		(1.0 - tire.getTread()) * surface->frictionNonTread;
+
+	btRigidBody * bodyA = body;
+	btRigidBody * bodyB = &getFixedBody();
+	if (btRigidBody::upcast(ray.m_collisionObject))
+	{
+		bodyB = btRigidBody::upcast(ray.m_collisionObject);
+	}
+
+	btVector3 wheelTangent1 = transform.getBasis().getColumn(1); // forward
+	btVector3 wheelTangent2 = transform.getBasis().getColumn(0); // right
+	btVector3 wheelNormal = transform.getBasis().getColumn(2); // up
+
+	btVector3 contactNormal = ray.getNormal();
+	btVector3 contactPointA = ray.getPoint();
+	btVector3 contactPointB = ray.getPoint();
+
+	btScalar stiffnessConstant = suspension.getStiffness();
+	btScalar dampingConstant = suspension.getDamping();
+	btScalar displacement = suspension.getDisplacement();
+
+	// update constraints
+	btVector3 rA = contactPointA - bodyA->getCenterOfMassPosition();
+	btVector3 rB = contactPointB - bodyB->getCenterOfMassPosition();
+
+	btVector3 contactTangent1 = wheelTangent1 - contactNormal * contactNormal.dot(wheelTangent1);
+	btVector3 contactTangent2 = wheelTangent2 - contactNormal * contactNormal.dot(wheelTangent2);
+	contactTangent1.normalize();
+	contactTangent2.normalize();
+
+	// project wheel normal onto contact forward facing plane to calculate camber
+	btVector3 projNormal = wheelNormal - wheelNormal.dot(contactTangent1) * contactTangent1;
+	projNormal.normalize();
+
+	contact.camber = 0;//btAcos(projNormal.dot(contactNormal)) * SIMD_DEGS_PER_RAD; fixme
+	contact.vR = shaft.getAngularVelocity() * radius;
+	contact.bodyA = bodyA;
+	contact.bodyB = bodyB;
+	contact.rA = rA;
+	contact.rB = rB;
+
+	btVector3 vA = bodyA->getLinearVelocity() + bodyA->getAngularVelocity().cross(rA);
+	btVector3 vB = bodyB->getLinearVelocity() + bodyB->getAngularVelocity().cross(rB);
+	btVector3 vAB = vA - vB;
+
+	// set suspension constraint
+	{
+		// CFM and ERP from spring stiffness and damping constants
+		btScalar softness = 1.0f / (dt * (dt * stiffnessConstant + dampingConstant));
+		btScalar biasFactor = stiffnessConstant / (dt * stiffnessConstant + dampingConstant);
+		btScalar velocityError = -biasFactor * displacement;
+
+		btVector3 normal = contactNormal;
+		btScalar denomA = bodyA->computeImpulseDenominator(contactPointA, normal);
+		btScalar denomB = bodyB->computeImpulseDenominator(contactPointB, normal);
+		btScalar jacDiagInv = 1 / (denomA + denomB + softness);
+
+		contact.response.jacDiagInv = jacDiagInv;
+		contact.response.rhs = -velocityError * jacDiagInv;
+		contact.response.cfm = -softness * jacDiagInv;
+		contact.response.lowerLimit = 0;
+		contact.response.upperLimit = SIMD_INFINITY;
+		contact.response.accumImpulse = 0;
+		contact.response.normal = normal;
+		contact.response.angularCompA = bodyA->getInvInertiaTensorWorld() * rA.cross(normal);
+		contact.response.angularCompB = bodyB->getInvInertiaTensorWorld() * rB.cross(normal);
+	}
+
+	// set longitudinal friction constraint
+	{
+		btVector3 normal = contactTangent1;
+		btScalar denomA = bodyA->computeImpulseDenominator(contactPointA, normal);
+		btScalar denomB = bodyB->computeImpulseDenominator(contactPointB, normal);
+		btScalar jacDiagInv =  1 / (denomA + denomB);
+		btScalar velocityError = vAB.dot(normal) - contact.vR;
+
+		contact.v1 = velocityError + contact.vR;
+		contact.friction1.jacDiagInv = jacDiagInv;
+		contact.friction1.rhs = -velocityError * jacDiagInv;
+		contact.friction1.cfm = 0;
+		contact.friction1.lowerLimit = 0;
+		contact.friction1.upperLimit = SIMD_INFINITY;
+		contact.friction1.accumImpulse = 0;
+		contact.friction1.normal = normal;
+		contact.friction1.angularCompA = bodyA->getInvInertiaTensorWorld() * rA.cross(normal);
+		contact.friction1.angularCompB = bodyB->getInvInertiaTensorWorld() * rB.cross(normal);
+	}
+
+	// set lateral friction constraint
+	{
+		btVector3 normal = contactTangent2;
+		btScalar denomA = bodyA->computeImpulseDenominator(contactPointA, normal);
+		btScalar denomB = bodyB->computeImpulseDenominator(contactPointB, normal);
+		btScalar jacDiagInv =  1 / (denomA + denomB);
+		btScalar velocityError = vAB.dot(normal);
+
+		contact.v2 = velocityError;
+		contact.friction2.jacDiagInv = jacDiagInv;
+		contact.friction2.rhs = -velocityError * jacDiagInv;
+		contact.friction2.cfm = 0;
+		contact.friction2.lowerLimit = 0;
+		contact.friction2.upperLimit = SIMD_INFINITY;
+		contact.friction2.accumImpulse = 0;
+		contact.friction2.normal = normal;
+		contact.friction2.angularCompA = bodyA->getInvInertiaTensorWorld() * rA.cross(normal);
+		contact.friction2.angularCompB = bodyB->getInvInertiaTensorWorld() * rB.cross(normal);
+	}
+
+	return true;
+}
+
+}

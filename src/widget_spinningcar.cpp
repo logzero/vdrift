@@ -2,6 +2,7 @@
 #include "car.h"
 #include "cfg/ptree.h"
 #include "pathmanager.h"
+#include "contentmanager.h"
 
 WIDGET_SPINNINGCAR::WIDGET_SPINNINGCAR():
 	pathptr(0),
@@ -191,16 +192,10 @@ void WIDGET_SPINNINGCAR::Load(SCENENODE & parent)
 	bool damage = false;
 	bool debugmode = false;
 
-	std::string partspath = pathptr->GetCarPartsDir();
-	std::string carnamebase = carname.substr(0, carname.find("/"));
-	std::string cardir = pathptr->GetCarsDir()+"/"+carnamebase;
-	std::string carpath = pathptr->GetCarPath(carnamebase);
-
-	PTree carconf;
-	file_open_basic fopen(carpath, pathptr->GetCarPartsPath());
-	if (!read_ini(carname.substr(carname.find("/")+1), fopen, carconf))
+	std::string cardir = pathptr->GetCarsDir() + "/" + carname;
+	std::tr1::shared_ptr<PTree> carconf;
+	if (!contentptr->load(carconf, cardir, carname + ".car"))
 	{
-		*errptr << "Error loading car's configfile: " << carpath << std::endl;
 		return;
 	}
 
@@ -208,12 +203,12 @@ void WIDGET_SPINNINGCAR::Load(SCENENODE & parent)
 	{
 		carnode = parent.AddNode();
 	}
-
 	SCENENODE & carnoderef = GetCarNode(parent);
 	car.push_back(CAR());
 
+	std::string partspath = pathptr->GetCarPartsDir();
 	if (!car.back().LoadGraphics(
-			carconf, cardir, carname, partspath,
+			*carconf, cardir, carname, partspath,
 			MATHVECTOR<float, 3>(r, g, b),
 			carpaint, anisotropy,
 			camerabounce, damage, debugmode,

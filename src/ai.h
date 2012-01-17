@@ -15,16 +15,16 @@ class TRACK;
 
 struct AI_Car
 {
-	AI_Car (CAR * new_car, float newdifficulty) : car (new_car), shift_time(0.0),
-		longitude_mu(0.9), lateral_mu(0.9),last_patch(NULL), use_racingline(true),
+	AI_Car (CAR * new_car, float newdifficulty) :
+		car(new_car),
+		last_patch(NULL),
+		use_racingline(true),
 		difficulty(newdifficulty)
-		{
-			inputs.resize(CARINPUT::INVALID, 0.0);
-		}
+	{
+		inputs.resize(CARINPUT::INVALID, 0.0);
+	}
 	CAR * car;
 	float shift_time;
-	float longitude_mu; ///<friction coefficient of the tire - longitude direction
-	float lateral_mu; ///<friction coefficient of the tire - lateral direction
 	const BEZIER * last_patch; ///<last patch the car was on, used in case car is off track
 	bool use_racingline; ///<true allows the AI to take a proper racing line
 	float difficulty;
@@ -48,6 +48,9 @@ struct AI_Car
 	keyed_container <DRAWABLE>::handle brakedraw;
 	keyed_container <DRAWABLE>::handle steerdraw;
 	keyed_container <DRAWABLE>::handle avoidancedraw;
+	VERTEXARRAY brakeshape;
+	VERTEXARRAY steershape;
+	VERTEXARRAY avoidanceshape;
 	std::vector <BEZIER> brakelook;
 	std::vector <BEZIER> steerlook;
 };
@@ -74,10 +77,8 @@ private:
 	std::vector <float> empty_vector;
 	std::vector <AI_Car> AI_Cars;
 	void updateGasBrake(AI_Car *c);
-	void calcMu(AI_Car *c);
-	float calcSpeedLimit(AI_Car *c, const BEZIER* patch, const BEZIER* nextpatch, float friction, float extraradius);
-	float calcBrakeDist(AI_Car *c, float current_speed, float allowed_speed, float friction);
 	void updateSteer(AI_Car *c);
+	float calcSpeedLimit(AI_Car *c, const BEZIER* patch, const BEZIER * nextpatch, float extraradius=0) const;
 	void analyzeOthers(AI_Car *c, float dt, const std::list <CAR> & othercars);
 	float steerAwayFromOthers(AI_Car *c); ///< returns a float that should be added into the steering wheel command
 	float brakeFromOthers(AI_Car *c, float speed_diff); ///< returns a float that should be added into the brake command. speed_diff is the difference between the desired speed and speed limit of this area of the track

@@ -1,22 +1,13 @@
 #ifndef _CONTENTMANAGER_H
 #define _CONTENTMANAGER_H
 
-#include "soundinfo.h"
+#include "soundfactory.h"
+#include "texturefactory.h"
+#include "modelfactory.h"
+#include "configfactory.h"
 
 #include <map>
-#include <string>
 #include <vector>
-#include <iostream>
-
-#ifdef _MSC_VER
-#include <memory>
-#else
-#include <tr1/memory>
-#endif
-
-class SOUNDBUFFER;
-class TEXTURE;
-class MODEL;
 
 class ContentManager
 {
@@ -25,35 +16,40 @@ public:
 
 	~ContentManager();
 
+	/// retrieve shared object if in cache
 	template <class T>
-	bool get(const std::string & path, const std::string & name, std::tr1::shared_ptr<T>& sptr);
+	bool get(
+		std::tr1::shared_ptr<T> & sptr,
+		const std::string & path,
+		const std::string & name);
 
+	/// retrieve shared object, load if not in cache
 	template <class T>
-	bool load(const std::string & path, const std::string & name, std::tr1::shared_ptr<T>& sptr);
+	bool load(
+		std::tr1::shared_ptr<T> & sptr,
+		const std::string & path,
+		const std::string & name);
 
+	/// support additional optional parameters
 	template <class T, class P>
-	bool load(const std::string & path, const std::string & name, const P& param, std::tr1::shared_ptr<T>& sptr);
+	bool load(
+		std::tr1::shared_ptr<T> & sptr,
+		const std::string & path,
+		const std::string & name,
+		const P & param);
 
-	/// shared content directory path
+	/// add shared content directory path
 	void addSharedPath(const std::string & path);
 
-	/// content directory path
+	/// add content directory path
 	void addPath(const std::string & path);
 
-	/// sound device setting
-	void setSound(const SOUNDINFO& info);
-
-	/// textures size setting
-	void setTexSize(const std::string& value);
-
-	/// in general all textures on disk will be in the SRGB colorspace, so if the renderer wants to do
-	/// gamma correct lighting, it will want all textures to be gamma corrected using the SRGB flag
-	void setSRGB(bool value);
-
-	/// use VBOs instead of draw lists for models
-	void setVBO(bool value);
-
+	/// purge unused content
 	void sweep();
+
+	/// factories access
+	template <class T>
+	Factory<T> & getFactory() { return getFactoryCache; }
 
 private:
 	template <class T>
@@ -63,170 +59,157 @@ private:
 		void sweep();
 	};
 
-	// content caches
-	Cache<SOUNDBUFFER> sounds;
-	Cache<TEXTURE> textures;
-	Cache<MODEL> models;
+	/// register content factories
+	/// sweep(garbage collection) is mandatory
+	struct FactoryCache
+	{
+		#define REGISTER(T)\
+		Factory<T> T ## _factory;\
+		Cache<T> T ## _cache;\
+		operator Factory<T>&() {return T ## _factory;}\
+		operator Cache<T>&() {return T ## _cache;}
+		REGISTER(TEXTURE)
+		REGISTER(SOUND)
+		REGISTER(MODEL)
+		REGISTER(PTree)
+		#undef REGISTER
 
-	// content settings
-	SOUNDINFO sound_info;
-	std::string texture_size;
-	bool texture_srgb;
-	bool model_vbo;
+		void sweep()
+		{
+			#define SWEEP(T) T ## _cache.sweep();
+			SWEEP(TEXTURE)
+			SWEEP(SOUND)
+			SWEEP(MODEL)
+			SWEEP(PTree)
+			#undef SWEEP
+		}
+	} getFactoryCache;
 
-	// content paths
+	/// content paths
 	std::vector<std::string> sharedpaths;
 	std::vector<std::string> basepaths;
+
+	/// error log
 	std::ostream & error;
 
-	struct empty {};
+	/// error logger
+	bool _logerror(
+		const std::string & path,
+		const std::string & name);
 
+	/// get implementation
 	template <class T>
-	Cache<T>& getCache();
+	bool _get(
+		std::tr1::shared_ptr<T> & sptr,
+		const std::string & name);
 
+	/// load implementation
 	template <class T, class P>
-	bool load(
-		std::tr1::shared_ptr<T>& sptr,
-		const std::string& abspath,
-		const P& param);
-
-	template <class T, class P>
-	bool load(
-		std::tr1::shared_ptr<T>& sptr,
-		const std::vector<std::string>& paths,
-		const std::string& relpath,
-		const P& param);
+	bool _load(
+		std::tr1::shared_ptr<T> & sptr,
+		const std::vector<std::string> & basepaths,
+		const std::string & relpath,
+		const std::string & name,
+		const P & param);
 };
 
-template <>
-inline ContentManager::Cache<TEXTURE>& ContentManager::getCache()
+template <class T>
+inline bool ContentManager::get(
+	std::tr1::shared_ptr<T> & sptr,
+	const std::string & path,
+	const std::string & name)
 {
-	return textures;
+	// check for the specialised version
+	// fall back to the generic one
+	return 	_get(sptr, path + name) ||
+			_get(sptr, name);
 }
 
-template <>
-inline ContentManager::Cache<MODEL>& ContentManager::getCache()
+template <class T>
+inline bool ContentManager::load(
+	std::tr1::shared_ptr<T> & sptr,
+	const std::string & path,
+	const std::string & name)
 {
-	return models;
+	return load(sptr, path, name, typename Factory<T>::empty());
 }
 
-template <>
-inline ContentManager::Cache<SOUNDBUFFER>& ContentManager::getCache()
+template <class T, class P>
+inline bool ContentManager::load(
+	std::tr1::shared_ptr<T> & sptr,
+	const std::string & path,
+	const std::string & name,
+	const P & param)
 {
-	return sounds;
+	// check for the specialised version in basepaths
+	// fall back to the generic one in shared paths
+	return 	_load(sptr, basepaths, path, name, param) ||
+			_load(sptr, sharedpaths, "", name, param) ||
+			_logerror(path, name);
+}
+
+template <class T>
+inline bool ContentManager::_get(
+	std::tr1::shared_ptr<T> & sptr,
+	const std::string & name)
+{
+	// retrieve from cache
+	Cache<T> & cache = getFactoryCache;
+	typename Cache<T>::const_iterator i = cache.find(name);
+	if (i != cache.end())
+	{
+		sptr = i->second;
+		return true;
+	}
+	return false;
+}
+
+template <class T, class P>
+inline bool ContentManager::_load(
+	std::tr1::shared_ptr<T> & sptr,
+	const std::vector<std::string> & basepaths,
+	const std::string & relpath,
+	const std::string & name,
+	const P & param)
+{
+	// check cache
+	if (_get(sptr, relpath + name))
+	{
+		return true;
+	}
+
+	// load from basepaths
+	Factory<T>& factory = getFactory<T>();
+	for (size_t i = 0; i < basepaths.size(); ++i)
+	{
+		if (factory.create(sptr, error, basepaths[i], relpath, name, param))
+		{
+			// cache loaded content
+			Cache<T> & cache = getFactoryCache;
+			cache[relpath + name] = sptr;
+			return true;
+		}
+	}
+
+	return false;
 }
 
 template <class T>
 inline void ContentManager::Cache<T>::sweep()
 {
-	typename Cache::iterator it = this->begin();
-	while (it != this->end())
+	// garbage collection here
+	typename Cache<T>::iterator it = Cache<T>::begin();
+	while (it != Cache<T>::end())
 	{
 		if (it->second.unique())
 		{
-			this->erase(it++);
+			Cache<T>::erase(it++);
 		}
 		else
 		{
 			++it;
 		}
 	}
-}
-
-template <class T, class P>
-inline bool ContentManager::load(
-	std::tr1::shared_ptr<T>& sptr,
-	const std::vector<std::string>& paths,
-	const std::string& relpath,
-	const P& param)
-{
-	Cache<T>& cache = getCache<T>();
-	typename Cache<T>::const_iterator i = cache.find(relpath);
-	if (i != cache.end())
-	{
-		sptr = i->second;
-		return true;
-	}
-	for (size_t i = 0; i < paths.size(); ++i)
-	{
-		if (load(sptr, paths[i] + '/' + relpath, param))
-		{
-			cache[relpath] = sptr;
-			return true;
-		}
-	}
-	return false;
-}
-
-template <class T, class P>
-inline bool ContentManager::load(
-	const std::string & path,
-	const std::string & name,
-	const P& param,
-	std::tr1::shared_ptr<T>& sptr)
-{
-	if (!path.empty())
-	{
-		if (load(sptr, basepaths, path + '/' + name, param) ||
-			load(sptr, sharedpaths, name, param))
-		{
-			return true;
-		}
-	}
-	else
-	{
-		if (load(sptr, basepaths, name, param) ||
-			load(sptr, sharedpaths, name, param))
-		{
-			return true;
-		}
-	}
-	error << "Failed to load " << name << " from:";
-	for (size_t i = 0; i < basepaths.size(); ++i)
-	{
-		error << " " << basepaths[i] + '/' + path;
-	}
-	for (size_t i = 0; i < sharedpaths.size(); ++i)
-	{
-		error << " " << sharedpaths[i];
-	}
-	error << std::endl;
-	return false;
-}
-
-template <class T>
-inline bool ContentManager::load(
-	const std::string & path,
-	const std::string & name,
-	std::tr1::shared_ptr<T>& sptr)
-{
-	return load(path, name, empty(), sptr);
-}
-
-template <class T>
-inline bool ContentManager::get(
-	const std::string & path,
-	const std::string & name,
-	std::tr1::shared_ptr<T>& sptr)
-{
-	Cache<T>& cache = getCache<T>();
-	typename Cache<T>::const_iterator i;
-	if (!path.empty())
-	{
-		i = cache.find(path + '/' + name);
-		if (i != cache.end())
-		{
-			sptr = i->second;
-			return true;
-		}
-	}
-	i = cache.find(name);
-	if (i != cache.end())
-	{
-		sptr = i->second;
-		return true;
-	}
-	return false;
 }
 
 #endif // _CONTENTMANAGER_H

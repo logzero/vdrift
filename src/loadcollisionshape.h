@@ -2,9 +2,9 @@
 #define _LOADCOLLISIONSHAPE_H
 
 class PTree;
-class btVector3;
+class btTransform;
 class btCollisionShape;
-class btCompoundshape;
+class btCompoundShape;
 
 // if compound not null capsule is added to compound
 // if compound null and capsule non centered new compound is created
@@ -30,7 +30,7 @@ void LoadHullShape(
 	btCompoundShape *& compound);
 
 // if compound not null shape is added to compound
-// if compound null but reqiured new compound is created 
+// if compound null but reqiured new compound is created
 void LoadCollisionShape(
 	const PTree & cfg,
 	const btTransform & transform,

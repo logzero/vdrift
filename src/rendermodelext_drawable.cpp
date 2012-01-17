@@ -53,7 +53,7 @@ void RenderModelExternalDrawable::draw(GLWrapper & gl) const
 			gl.DisableVertexAttribArray(VERTEX_UV1);
 			gl.DisableVertexAttribArray(VERTEX_UV2);
 
-			const int * faces;
+			const unsigned * faces;
 			int facecount;
 			vert_array->GetFaces(faces, facecount);
 			assert(faces);

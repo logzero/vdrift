@@ -1,8 +1,8 @@
 #ifndef _PERFORMANCE_TESTING_H
 #define _PERFORMANCE_TESTING_H
 
-#include "car.h"
-#include "tracksurface.h"
+#include "sim/vehicle.h"
+#include "sim/surface.h"
 
 #include <string>
 #include <ostream>
@@ -12,7 +12,7 @@ class DynamicsWorld;
 class PERFORMANCE_TESTING
 {
 public:
-	PERFORMANCE_TESTING(DynamicsWorld & world);
+	PERFORMANCE_TESTING(sim::World & world);
 
 	void Test(
 		const std::string & carpath,
@@ -22,9 +22,9 @@ public:
 		std::ostream & error_output);
 
 private:
-	DynamicsWorld & world;
-	TRACKSURFACE surface;
-	CAR car;
+	sim::World & world;
+	sim::Surface surface;
+	sim::Vehicle car;
 	std::string carstate;
 
 	void SimulateFlatRoad();

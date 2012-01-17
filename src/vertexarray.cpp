@@ -62,14 +62,14 @@ QT_TEST(vertexarray_test)
 
 	testarray.Clear();
 	VERTEXARRAY facearray1, facearray2;
-	int someint[3];
+	unsigned someint[3];
 	someint[0] = 0;
 	someint[1] = 1;
 	someint[2] = 2;
 	facearray1.SetFaces(someint, 3);
 	facearray2.SetFaces(someint, 3);
 	testarray = facearray1 + facearray2;
-	const int * ptri;
+	const unsigned * ptri;
 	testarray.GetFaces(ptri, ptrnum);
 	QT_CHECK_EQUAL(ptrnum, 6);
 	QT_CHECK_EQUAL(ptri[1], 1);
@@ -84,54 +84,45 @@ QT_TEST(vertexarray_test)
 	QT_CHECK_EQUAL(ptri[4], 2);
 }
 
-void VERTEXARRAY::SetNormals(float * newarray, size_t newarraycount)
+void VERTEXARRAY::SetNormals(const float * array, size_t count, size_t offset)
 {
-	//Tried to assign values that aren't in sets of 3
-	assert(newarraycount % 3 == 0);
+	size_t size = offset + count;
 
-	if (newarraycount != normals.size())
+	// Tried to assign values that aren't in sets of 3
+	assert(size % 3 == 0);
+
+	if (size != normals.size())
 	{
-		normals.resize(newarraycount);
+		normals.resize(size);
 	}
 
-	float * myarray = &(normals[0]);
-	for (size_t i = 0; i < newarraycount; ++i)
+	float * myarray = &(normals[offset]);
+	for (size_t i = 0; i < count; ++i)
 	{
-		myarray[i] = newarray[i];
+		myarray[i] = array[i];
 	}
-
-	/*for (int i = 0; i < newarraycount; i++)
-	{
-		normals[i] = newarray[i];
-	}*/
 }
 
-void VERTEXARRAY::SetVertices(float * newarray, size_t newarraycount)
+void VERTEXARRAY::SetVertices(const float * array, size_t count, size_t offset)
 {
-	//Tried to assign values that aren't in sets of 3
-	assert(newarraycount % 3 == 0);
+	size_t size = offset + count;
 
-	if (newarraycount != vertices.size())
+	// Tried to assign values that aren't in sets of 3
+	assert(size % 3 == 0);
+
+	if (size != vertices.size())
 	{
-		//cout << "New size: " << newarraycount << " (was " << vertices.size() << ")" << endl;
-		vertices.resize(newarraycount);
+		vertices.resize(size);
 	}
 
-	float * myarray = &(vertices[0]);
-	for (size_t i = 0; i < newarraycount; ++i)
+	float * myarray = &(vertices[offset]);
+	for (size_t i = 0; i < count; ++i)
 	{
-		myarray[i] = newarray[i];
+		myarray[i] = array[i];
 	}
-
-	/*int i = 0;
-	ITERVEC(float, vertices, it)
-	{
-		*it = newarray[i];
-		++i;
-	}*/
 }
 
-void VERTEXARRAY::SetFaces(int * newarray, size_t newarraycount)
+void VERTEXARRAY::SetFaces(const unsigned * newarray, size_t newarraycount)
 {
 	//Tried to assign values that aren't in sets of 3
 	assert (newarraycount % 3 == 0);
@@ -139,8 +130,7 @@ void VERTEXARRAY::SetFaces(int * newarray, size_t newarraycount)
 	if (newarraycount != faces.size())
 		faces.resize(newarraycount);
 
-
-	int * myarray = &(faces[0]);
+	unsigned * myarray = &(faces[0]);
 	for (size_t i = 0; i < newarraycount; ++i)
 	{
 		myarray[i] = newarray[i];
@@ -159,7 +149,7 @@ void VERTEXARRAY::SetTexCoordSets(int newtcsets)
 }
 
 //set is zero indexed
-void VERTEXARRAY::SetTexCoords(size_t set, float * newarray, size_t newarraycount)
+void VERTEXARRAY::SetTexCoords(size_t set, const float * newarray, size_t newarraycount)
 {
 	//Tried to assign a tex coord set beyond the allocated number of sets
 	assert(set < texcoords.size());
@@ -194,7 +184,7 @@ void VERTEXARRAY::GetVertices(const float * & output_array_pointer, int & output
 	output_array_pointer = vertices.empty() ? NULL : &vertices[0];
 }
 
-void VERTEXARRAY::GetFaces(const int * & output_array_pointer, int & output_array_num) const
+void VERTEXARRAY::GetFaces(const unsigned * & output_array_pointer, int & output_array_num) const
 {
 	output_array_num = faces.size();
 	//output_array_pointer = faces.empty() ? NULL : &faces[0];
@@ -266,9 +256,11 @@ VERTEXARRAY VERTEXARRAY::operator+ (const VERTEXARRAY & v) const
 	return out;
 }
 
-void VERTEXARRAY::Add(float * newnorm, int newnormcount, float * newvert, int newvertcount,
-			int * newfaces, int newfacecount,
-			float * newtc, int newtccount)
+void VERTEXARRAY::Add(
+	const float * newnorm, int newnormcount,
+	const float * newvert, int newvertcount,
+	const unsigned * newfaces, int newfacecount,
+	const float * newtc, int newtccount)
 {
 	int idxoffset = vertices.size()/3;
 
@@ -327,7 +319,7 @@ void VERTEXARRAY::Add(float * newnorm, int newnormcount, float * newvert, int ne
 			faces.resize(newsize);
 		if (faces.size() != 0)
 		{
-			int * myarray = &(faces[0]);
+			unsigned * myarray = &(faces[0]);
 			for (int i = 0; i < newcount; ++i)
 			{
 				myarray[i+origsize] = newfaces[i] + idxoffset;
@@ -368,7 +360,7 @@ void VERTEXARRAY::SetToBillboard(float x1, float y1, float x2, float y2)
 	glTexCoord2f(1.0f, 1.0f); glVertex3f( 0,  scale,  scale);
 	glTexCoord2f(0.0f, 1.0f); glVertex3f( 0,  scale,  -scale);*/
 
-	int bfaces[6];
+	unsigned bfaces[6];
 	bfaces[0] = 0;
 	bfaces[1] = 1;
 	bfaces[2] = 2;
@@ -415,7 +407,7 @@ void VERTEXARRAY::SetTo2DQuad(float x1, float y1, float x2, float y2, float u1, 
 {
 	float vcorners[12];
 	float uvs[8];
-	int bfaces[6];
+	unsigned bfaces[6];
 	SetVertexData2DQuad(x1,y1,x2,y2,u1,v1,u2,v2, vcorners, uvs, bfaces);
 	for (int i = 2; i < 12; i += 3)
 		vcorners[i] = z;
@@ -425,7 +417,7 @@ void VERTEXARRAY::SetTo2DQuad(float x1, float y1, float x2, float y2, float u1, 
 	SetTexCoords(0, uvs, 8);
 }
 
-void VERTEXARRAY::SetVertexData2DQuad(float x1, float y1, float x2, float y2, float u1, float v1, float u2, float v2, float * vcorners, float * uvs, int * bfaces, int faceoffset) const
+void VERTEXARRAY::SetVertexData2DQuad(float x1, float y1, float x2, float y2, float u1, float v1, float u2, float v2, float * vcorners, float * uvs, unsigned * bfaces, int faceoffset) const
 {
 	vcorners[0] = x1;
 	vcorners[1] = y1;
@@ -461,7 +453,7 @@ void VERTEXARRAY::SetTo2DButton(float x, float y, float w, float h, float sidewi
 {
 	float vcorners[12*3];
 	float uvs[8*3];
-	int bfaces[6*3];
+	unsigned bfaces[6*3];
 
 	//y1 = 1.0 - y1;
 	//y2 = 1.0 - y2;
@@ -507,7 +499,7 @@ void VERTEXARRAY::SetTo2DBox(float x, float y, float w, float h, float marginwid
 	const unsigned int quads = 9;
 	float vcorners[12*quads];
 	float uvs[8*quads];
-	int bfaces[6*quads];
+	unsigned bfaces[6*quads];
 
 	//y1 = 1.0 - y1;
 	//y2 = 1.0 - y2;
@@ -780,7 +772,7 @@ QT_TEST(vertexarray_buldfromfaces_test)
 	varray.BuildFromFaces(cubesides);
 
 	const float * tempfloat(NULL);
-	const int * tempint(NULL);
+	const unsigned * tempint(NULL);
 	int tempnum;
 
 	varray.GetNormals(tempfloat, tempnum);

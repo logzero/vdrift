@@ -18,34 +18,43 @@ private:
 	std::vector < std::vector <float> > texcoords;
 	std::vector <float> normals;
 	std::vector <float> vertices;
-	std::vector <int> faces;
+	std::vector <unsigned> faces;
 
 public:
 	VERTEXARRAY() {}
+	
 	~VERTEXARRAY() {Clear();}
 
 	VERTEXARRAY operator+ (const VERTEXARRAY & v) const;
 
 	void Clear() {texcoords.clear();normals.clear();vertices.clear();faces.clear();}
 
-	void SetNormals(float * newarray, size_t newarraycount);
-	void SetVertices(float * newarray, size_t newarraycount);
-	void SetFaces(int * newarray, size_t newarraycount);
+	void SetNormals(const float * array, size_t count, size_t offset = 0);
+	
+	void SetVertices(const float * array, size_t count, size_t offset = 0);
+	
+	void SetFaces(const unsigned * newarray, size_t newarraycount);
+	
 	void SetTexCoordSets(int newtcsets);
-	void SetTexCoords(size_t set, float * newarray, size_t newarraycount); ///<set is zero indexed
-
-	void Add(float * newnorm, int newnormcount, float * newvert, int newvertcount, int * newfaces, int newfacecount,
-		float * newtc, int newtccount); ///< assumes there is 1 tex coord set
+	
+	///<set is zero indexed
+	void SetTexCoords(size_t set, const float * newarray, size_t newarraycount); 
+	
+	///< assumes there is 1 tex coord set
+	void Add(const float * newnorm, int newnormcount,
+		const float * newvert, int newvertcount,
+		const unsigned * newfaces, int newfacecount,
+		const float * newtc, int newtccount);
 
 	//C style interface functions
 	void GetNormals(const float * & output_array_pointer, int & output_array_num) const;
 	void GetVertices(const float * & output_array_pointer, int & output_array_num) const;
-	void GetFaces(const int * & output_array_pointer, int & output_array_num) const;
-	inline int GetTexCoordSets() const {return texcoords.size();}
+	void GetFaces(const unsigned * & output_array_pointer, int & output_array_num) const;
 	void GetTexCoords(size_t set, const float * & output_array_pointer, int & output_array_num) const;
 
 	//C++ style interface functions
 	inline int GetNumFaces() const {return faces.size();}
+	inline int GetTexCoordSets() const {return texcoords.size();}
 	///array bounds are not checked
 	inline std::vector <float> GetVertex(int face_number, int vertex_number) const
 	{
@@ -85,7 +94,7 @@ public:
 
 	void SetTo2DQuad(float x1, float y1, float x2, float y2, float u1, float v1, float u2, float v2, float z);
 
-	void SetVertexData2DQuad(float x1, float y1, float x2, float y2, float u1, float v1, float u2, float v2, float * vcorners, float * uvs, int * bfaces, int faceoffset=0) const;
+	void SetVertexData2DQuad(float x1, float y1, float x2, float y2, float u1, float v1, float u2, float v2, float * vcorners, float * uvs, unsigned * bfaces, int faceoffset=0) const;
 
 	void SetToUnitCube();
 

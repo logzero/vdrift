@@ -39,46 +39,28 @@ void PATHMANAGER::Init(std::ostream & info_output, std::ostream & error_output)
 	// Figure out the user's home directory.
 	const char* homedir;
 #ifndef _WIN32
-	homedir = getenv("HOME");
-	if (homedir == NULL)
+	if ((homedir = getenv("HOME")) == NULL)
 	{
-		homedir = getenv("USER");
-		if (homedir == NULL)
-		{
-			homedir = getenv("USERNAME");
-			if (homedir == NULL)
-			{
+		if ((homedir = getenv("USER")) == NULL)
+			if ((homedir = getenv("USERNAME")) == NULL)
 				error_output << "Could not find user's home directory!" << std::endl;
-			}
-		}
 		home_directory = "/home/";
 	}
 #else
-	homedir = getenv("USERPROFILE");
-	if (homedir == NULL)
-	{
+	if ((homedir = getenv("USERPROFILE")) == NULL)
 		homedir = "data";	// WIN 9x/Me
-	}
 #endif
 	home_directory += homedir;
 
 	// Find data dir.
 	const char * datadir = getenv("VDRIFT_DATA_DIRECTORY");
 	if (datadir == NULL)
-	{
 		if (FileExists("data/settings/options.config"))
-		{
 			data_directory = "data";
-		}
-		else
-		{
+        else
 			data_directory = DATA_DIR;
-		}
-	}
 	else
-	{
 		data_directory = std::string(datadir);
-	}
 
 	// Find settings file.
 	settings_path = home_directory;
@@ -395,6 +377,16 @@ std::string PATHMANAGER::GetReadOnlyCarsPath() const
 std::string PATHMANAGER::GetWriteableCarsPath() const
 {
 	return GetWriteableDataPath()+"/"+GetCarsDir();
+}
+
+std::string PATHMANAGER::GetReadOnlyTracksPath() const
+{
+	return GetDataPath()+"/"+GetTracksDir();
+}
+
+std::string PATHMANAGER::GetWriteableTracksPath() const
+{
+	return GetWriteableDataPath()+"/"+GetTracksDir();
 }
 
 std::string PATHMANAGER::GetTemporaryFolder() const

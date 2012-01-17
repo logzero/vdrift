@@ -56,7 +56,7 @@ bool FONT::Load(
 	texinfo.mipmap = mipmap;
 	texinfo.repeatu = false;
 	texinfo.repeatv = false;
-	if (!content.load(texpath, texname, texinfo, font_texture)) return false;
+	if (!content.load(font_texture, texpath, texname, texinfo)) return false;
 
 	std::ifstream fontinfo(fontinfopath.c_str());
 	if (!fontinfo)

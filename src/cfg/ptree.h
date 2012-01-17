@@ -10,22 +10,6 @@
 
 class PTree;
 
-// file open functor, caller owns returned stream, returns a stream
-struct file_open
-{
-	virtual std::istream * operator()(const std::string & name) const = 0;
-};
-
-// file open functor, supporting a base path and additional alternative path
-struct file_open_basic : file_open
-{
-	std::string path, path_alt;
-
-	file_open_basic(const std::string & path, const std::string & path_alt);
-
-	std::istream * operator()(const std::string & name) const;
-};
-
 // stream operator for a vector of values
 template <typename T>
 std::istream & operator>>(std::istream & stream, std::vector<T> & out)
@@ -57,6 +41,12 @@ std::istream & operator>>(std::istream & stream, std::vector<T> & out)
   return stream;
 }
 
+// include callback, called when "include" property name is encountered
+struct Include
+{
+	virtual void operator()(PTree & node, std::string & value) = 0;
+};
+
 /*
 # ini format
 key1 = value1
@@ -67,8 +57,7 @@ key4 = value4
 [key2]
 key5 = value5
 */
-void read_ini(std::istream & in, PTree & p);
-bool read_ini(const std::string & file_name, const file_open & fopen, PTree & p);
+void read_ini(std::istream & in, PTree & p, Include * inc = 0);
 void write_ini(const PTree & p, std::ostream & out);
 
 /*
@@ -83,7 +72,7 @@ key2
     key5 value5
 }
 */
-void read_inf(std::istream & in, PTree & p);
+void read_inf(std::istream & in, PTree & p, Include * inc = 0);
 void write_inf(const PTree & p, std::ostream & out);
 
 /*
@@ -96,7 +85,7 @@ void write_inf(const PTree & p, std::ostream & out);
     <key5>value5</key5>
 </key2>
 */
-void read_xml(std::istream & in, PTree & p);
+void read_xml(std::istream & in, PTree & p, Include * inc = 0);
 void write_xml(const PTree & p, std::ostream & out);
 
 
@@ -124,16 +113,6 @@ public:
 	int size() const
 	{
 		return _children.size();
-	}
-
-	// depth first traversal
-	template <class T> void forEachRecursive(T & functor) const
-	{
-		functor(*this);
-		for (const_iterator i = begin(); i != end(); ++i)
-		{
-			i->second.forEachRecursive(functor);
-		}
 	}
 
 	const std::string & value() const
@@ -174,16 +153,7 @@ public:
 			return true;
 		}
 
-		// error output
-		std::string full_key = key;
-		const PTree * parent = this;
-		while (parent)
-		{
-			full_key = parent->_value + '.' + full_key;
-			parent = parent->_parent;
-		}
-		error << full_key << " not found." << std::endl;
-
+		error << fullname(key) << " not found." << std::endl;
 		return false;
 	}
 
@@ -204,19 +174,34 @@ public:
 		return p.set(key.substr(next), value);
 	}
 
+	// copy value, children
+	void set(PTree & other)
+	{
+		_value = other._value;
+		_children = other._children;
+	}
+
 	void clear()
 	{
 		_children.clear();
 	}
 
-	void read(std::istream & in, void (&read)(std::istream &, PTree &) = read_ini)
+	std::string fullname(const std::string & name = std::string()) const
 	{
-		read(in, *this);
-	}
-
-	void write(std::ostream & out, void (&write)(const PTree &, std::ostream &) = write_ini) const
-	{
-		write(*this, out);
+		std::string full_name;
+		if (!name.empty())
+		{
+			full_name = '.' + name;
+		}
+		
+		const PTree * node = this;
+		while (node && !node->_value.empty())
+		{
+			full_name = '.' + node->_value + full_name;
+			node = node->_parent;
+		}
+		
+		return full_name;
 	}
 
 private:

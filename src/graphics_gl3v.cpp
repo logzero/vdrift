@@ -27,7 +27,7 @@ bool GRAPHICS_GL3V::Init(const std::string & shaderpath,
 				int reflection_type,
 				const std::string & static_reflectionmap_file,
 				const std::string & static_ambientmap_file,
-				int anisotropy, const std::string & texturesize,
+				int anisotropy, int texturesize,
 				int lighting_quality, bool bloom, bool normalmaps,
 				const std::string & renderconfig,
 				std::ostream & info_output, std::ostream & error_output)
@@ -52,6 +52,11 @@ bool GRAPHICS_GL3V::Init(const std::string & shaderpath,
 	ADDCONDITION(shadows);
 	#undef ADDCONDITION
 
+    if (reflection_type >= 1)
+        conditions.insert("reflections_low");
+    if (reflection_type >= 2)
+        conditions.insert("reflections_high");
+
 	// load the reflection cubemap
 	if (!static_reflectionmap_file.empty())
 	{
@@ -60,7 +65,7 @@ bool GRAPHICS_GL3V::Init(const std::string & shaderpath,
 		t.verticalcross = true;
 		t.mipmap = true;
 		t.anisotropy = anisotropy;
-		t.size = texturesize;
+		t.maxsize = TEXTUREINFO::Size(texturesize);
 		static_reflection.Load(static_reflectionmap_file, t, error_output);
 	}
 
@@ -260,11 +265,12 @@ void GRAPHICS_GL3V::SetupScene(float fov, float new_view_distance, const MATHVEC
 		renderer.setPassUniform(stringMap.addStringId(i->first), RenderUniformEntry(stringMap.addStringId("projectionMatrix"), cameras[i->second].projectionMatrix.GetArray(),16));
 	}
 
-	// send inverse matrices for the default camera
+	// send matrices for the default camera
 	const CameraMatrices & defaultCamera = cameras.find("default")->second;
 	renderer.setGlobalUniform(RenderUniformEntry(stringMap.addStringId("invProjectionMatrix"), defaultCamera.inverseProjectionMatrix.GetArray(),16));
 	renderer.setGlobalUniform(RenderUniformEntry(stringMap.addStringId("invViewMatrix"), defaultCamera.inverseViewMatrix.GetArray(),16));
 	renderer.setGlobalUniform(RenderUniformEntry(stringMap.addStringId("defaultViewMatrix"), defaultCamera.viewMatrix.GetArray(),16));
+	renderer.setGlobalUniform(RenderUniformEntry(stringMap.addStringId("defaultProjectionMatrix"), defaultCamera.projectionMatrix.GetArray(),16));
 
 	// send sun light direction for the default camera
 
@@ -593,7 +599,7 @@ bool GRAPHICS_GL3V::ReloadShaders(const std::string & shaderpath, std::ostream &
 				}
 			}
 		}
-		
+
 		std::set <std::string> allcapsConditions;
 		for (std::set <std::string>::const_iterator i = conditions.begin(); i != conditions.end(); i++)
 		{

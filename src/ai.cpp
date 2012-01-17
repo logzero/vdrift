@@ -4,7 +4,6 @@
 #include "track.h"
 #include "carinput.h"
 #include "mathvector.h"
-#include "carwheelposition.h"
 #include "coordinatesystem.h"
 #include "optional.h"
 #include "unittest.h"
@@ -13,13 +12,6 @@
 #include <cmath>
 #include <algorithm>
 #include <iostream>
-
-template<class T> bool isnan(const T & x)
-{
-	return x != x;
-}
-
-#define GRAVITY 9.8
 
 //used to calculate brake value
 #define MAX_SPEED_DIFF 6.0
@@ -32,17 +24,18 @@ template<class T> bool isnan(const T & x)
 //used to detect very sharp corners like Circuit de Pau
 #define LOOKAHEAD_MIN_RADIUS 8.0
 
-//used to calculate friction coefficient
-#define FRICTION_FACTOR_LONG 0.68
-#define FRICTION_FACTOR_LAT 0.62
-
 //maximum change in brake value per second
 #define BRAKE_RATE_LIMIT 0.1
 #define THROTTLE_RATE_LIMIT 0.1
 
 //#define VISUALIZE_AI_DEBUG
 
-float clamp(float val, float min, float max)
+template <class T> static bool isnan(const T & x)
+{
+	return x != x;
+}
+
+template <class T> static T clamp(T val, T min, T max)
 {
 	assert(min <= max);
 	return std::min(max,std::max(min,val));
@@ -109,14 +102,9 @@ QT_TEST(ai_test)
 const BEZIER * GetCurrentPatch(const CAR *c)
 {
 	const BEZIER *curr_patch = c->GetCurPatch(0);
-	if (!curr_patch)
-	{
-		curr_patch = c->GetCurPatch(1); //let's try the other wheel
-		if (!curr_patch)
-			return NULL;
-	}
-
-	return curr_patch;
+	if (!curr_patch) return curr_patch;
+	// try other wheel
+	return c->GetCurPatch(1);
 }
 
 MATHVECTOR <float, 3> GetPatchFrontCenter(const BEZIER & patch)
@@ -294,8 +282,6 @@ void AI::updateGasBrake(AI_Car *c)
 	else
 		c->inputs[CARINPUT::START_ENGINE] = 0.0;
 
-	calcMu(c);
-
 	const BEZIER *curr_patch_ptr = GetCurrentPatch(c->car);
 	//if car is not on track, just let it roll
     if (!curr_patch_ptr)
@@ -321,15 +307,15 @@ void AI::updateGasBrake(AI_Car *c)
 	float speed_limit = 0;
 	if (!curr_patch.next_patch)
 	{
-		speed_limit = calcSpeedLimit(c, &curr_patch, NULL, c->lateral_mu, GetPatchWidthVector(*curr_patch_ptr).Magnitude())*speed_percent;
+		speed_limit = calcSpeedLimit(c, &curr_patch, NULL, GetPatchWidthVector(*curr_patch_ptr).Magnitude());
 	}
 	else
 	{
 		BEZIER next_patch = RevisePatch(curr_patch.next_patch, c->use_racingline);
-		speed_limit = calcSpeedLimit(c, &curr_patch, &next_patch, c->lateral_mu, GetPatchWidthVector(*curr_patch_ptr).Magnitude())*speed_percent;
+		speed_limit = calcSpeedLimit(c, &curr_patch, &next_patch, GetPatchWidthVector(*curr_patch_ptr).Magnitude());
 	}
 
-	speed_limit *= c->difficulty;
+	speed_limit = speed_limit * speed_percent * c->difficulty;
 
 	float speed_diff = speed_limit - currentspeed;
 
@@ -358,8 +344,7 @@ void AI::updateGasBrake(AI_Car *c)
 	}
 
 	//check upto maxlookahead distance
-	float maxlookahead = calcBrakeDist(c, currentspeed, 0.0, c->longitude_mu)+10;
-	//maxlookahead = 0.1;
+	float maxlookahead = 10 + c->car->GetBrakingDistance(0);
 	float dist_checked = 0.0;
 	float brake_dist = 0.0;
 	BEZIER patch_to_check = curr_patch;
@@ -386,19 +371,20 @@ void AI::updateGasBrake(AI_Car *c)
 		c->brakelook.push_back(patch_to_check);
 #endif
 
-		//speed_limit = calcSpeedLimit(c, &patch_to_check, c->lateral_mu)*speed_percent;
-		if (!patch_to_check.next_patch)
+		float extraradius = GetPatchWidthVector(*unmodified_patch_to_check).Magnitude();
+		if (patch_to_check.next_patch)
 		{
-			speed_limit = calcSpeedLimit(c, &patch_to_check, NULL, c->lateral_mu, GetPatchWidthVector(*unmodified_patch_to_check).Magnitude())*speed_percent;
+			BEZIER next_patch = RevisePatch(patch_to_check.next_patch, c->use_racingline);
+			speed_limit = calcSpeedLimit(c, &patch_to_check, &next_patch, extraradius);
 		}
 		else
 		{
-			BEZIER next_patch = RevisePatch(patch_to_check.next_patch, c->use_racingline);
-			speed_limit = calcSpeedLimit(c, &patch_to_check, &next_patch, c->lateral_mu, GetPatchWidthVector(*unmodified_patch_to_check).Magnitude())*speed_percent;
+			speed_limit = calcSpeedLimit(c, &patch_to_check, NULL, extraradius);
 		}
+		speed_limit = speed_limit * speed_percent;
 
 		dist_checked += GetPatchDirection(patch_to_check).Magnitude();
-		brake_dist = calcBrakeDist(c, currentspeed, speed_limit, c->longitude_mu);
+		brake_dist = c->car->GetBrakingDistance(speed_limit);
 
 		//if (brake_dist + CORNER_BRAKE_OFFSET > dist_checked)
 		if (brake_dist > dist_checked)
@@ -435,69 +421,25 @@ void AI::updateGasBrake(AI_Car *c)
 											  THROTTLE_RATE_LIMIT, THROTTLE_RATE_LIMIT);
 	c->inputs[CARINPUT::BRAKE] = RateLimit(c->inputs[CARINPUT::BRAKE], brake_value,
 										   BRAKE_RATE_LIMIT, BRAKE_RATE_LIMIT);
-
-	//c->inputs[CARINPUT::THROTTLE] = 0.0;
-	//c->inputs[CARINPUT::BRAKE] = 1.0;
 }
 
-void AI::calcMu(AI_Car *c)
-{
-	int i;
-	float long_friction = 0.0;
-	float lat_friction = 0.0;
-
-	for (i=0; i<4; i++)
-	{
-		long_friction += c->car->GetTireMaxFx(WHEEL_POSITION(i));
-		lat_friction += c->car->GetTireMaxFy(WHEEL_POSITION(i));
-	}
-
-	float long_mu = FRICTION_FACTOR_LONG * long_friction * c->car->GetInvMass() / GRAVITY;
-	float lat_mu = FRICTION_FACTOR_LAT * lat_friction * c->car->GetInvMass() / GRAVITY;
-	if (!isnan(long_mu)) c->longitude_mu = long_mu;
-	if (!isnan(lat_mu)) c->lateral_mu = lat_mu;
-}
-
-float AI::calcSpeedLimit(AI_Car *c, const BEZIER* patch, const BEZIER * nextpatch, float friction, float extraradius=0)
+float AI::calcSpeedLimit(AI_Car *c, const BEZIER* patch, const BEZIER * nextpatch, float extraradius) const
 {
 	assert(patch);
 
 	//adjust the radius at corner exit to allow a higher speed.
 	//this will get the car to accellerate out of corner
-	//double track_width = GetPatchWidthVector(*patch).Magnitude();
-	double adjusted_radius = GetPatchRadius(*patch);
+	float radius = GetPatchRadius(*patch);
 	if (nextpatch)
 	{
-		if (GetPatchRadius(*nextpatch) > adjusted_radius &&
+		if (GetPatchRadius(*nextpatch) > radius &&
 			GetPatchRadius(*patch) > LOOKAHEAD_MIN_RADIUS)
 		{
-			adjusted_radius += extraradius;
+			radius += extraradius;
 		}
 	}
 
-	//no downforce
-	//float v1 = sqrt(friction * GRAVITY * adjusted_radius);
-
-	//take into account downforce
-	double denom = (1.0 - std::min(1.01, adjusted_radius * -(c->car->GetAerodynamicDownforceCoefficient()) * friction * c->car->GetInvMass()));
-	double real = (friction * GRAVITY * adjusted_radius) / denom;
-	double v2 = 1000.0; //some really big number
-	if (real > 0)
-		v2 = sqrt(real);
-
-	//std::cout << v2 << ", " << sqrt(friction * GRAVITY * adjusted_radius) << ", " << GetPatchRadius(*patch) << ", " << acos((-GetPatchDirection(*patch)).Normalize().dot(GetPatchDirection(*patch->GetNextPatch()).Normalize()))*180.0/3.141593 << " --- " << -GetPatchDirection(*patch) << " --- " << GetPatchDirection(*patch->GetNextPatch()) << std::endl;
-
-	return v2;
-}
-
-float AI::calcBrakeDist(AI_Car *ai_car, float current_speed, float allowed_speed, float friction)
-{
-	float c = friction * GRAVITY;
-	float d = (-(ai_car->car->GetAerodynamicDownforceCoefficient()) * friction +
-				ai_car->car->GetAeordynamicDragCoefficient()) * ai_car->car->GetInvMass();
-	float v1sqr = current_speed * current_speed;
-	float v2sqr = allowed_speed * allowed_speed;
-	return -log((c + v2sqr*d)/(c + v1sqr*d))/(2.0*d);
+	return c->car->GetMaxVelocity(radius);
 }
 
 void AI::updateSteer(AI_Car *c)
@@ -596,8 +538,8 @@ void AI::updateSteer(AI_Car *c)
 	else if (angle > 180.0 && angle <= 360.0)
 		angle = 360.0 - angle;
 
-	float optimum_range = c->car->GetOptimumSteeringAngle();
-	angle = clamp(angle, -optimum_range, optimum_range);
+	float optimum_range = c->car->GetIdealSteeringAngle();
+	angle = clamp(float(angle), -optimum_range, optimum_range);
 
 	float steer_value = angle / c->car->GetMaxSteeringAngle();
 	if (steer_value > 1.0) steer_value = 1.0;
@@ -671,7 +613,7 @@ float AI::brakeFromOthers(AI_Car *c, float speed_diff)
 	//std::cout << mineta << ": " << etafeedback << ", " << mindistance << ": " << distancefeedback << ", " << speed_diff << ": " << speedfeedback << std::endl;
 
 	//bias = clamp((etafeedback+distancefeedback)*speedfeedback,0,1);
-	bias = clamp(etafeedback*distancefeedback*speedfeedback,0,1);
+	bias = clamp(etafeedback*distancefeedback*speedfeedback, 0.0f, 1.0f);
 
 	return bias;
 }
@@ -728,7 +670,7 @@ void AI::analyzeOthers(AI_Car *c, float dt, const std::list <CAR> & othercars)
 					float my_track_placement = GetHorizontalDistanceAlongPatch(*mycarpatch, TransformToPatchspace(c->car->GetCenterOfMassPosition()));
 					float their_track_placement = GetHorizontalDistanceAlongPatch(*othercarpatch, TransformToPatchspace(i->GetCenterOfMassPosition()));
 
-					float speed_diff_denom = clamp(speed_diff, -100, -0.01);
+					float speed_diff_denom = clamp(speed_diff, -100.0f, -0.01f);
 					float eta = (fore_position-fore_position_offset)/-speed_diff_denom;
 
 					info.fore_distance = fore_position;
@@ -886,7 +828,7 @@ double AI::Angle(double x1, double y1)
 	return atan2(y1, x1) * 180.0 / M_PI;
 }
 
-void ConfigureDrawable(keyed_container <DRAWABLE>::handle & ref, SCENENODE & topnode, float r, float g, float b)
+static void ConfigureDrawable(keyed_container <DRAWABLE>::handle & ref, SCENENODE & topnode, float r, float g, float b)
 {
 	if (!ref.valid())
 	{
@@ -894,6 +836,27 @@ void ConfigureDrawable(keyed_container <DRAWABLE>::handle & ref, SCENENODE & top
 		DRAWABLE & d = topnode.GetDrawlist().normal_noblend.get(ref);
 		d.SetColor(r,g,b,1);
 		d.SetDecal(true);
+	}
+}
+
+static void AddLinePoint(VERTEXARRAY & va, const MATHVECTOR<float, 3> & p)
+{
+	int vsize;
+	const float* vbase;
+	va.GetVertices(vbase, vsize);
+
+	if (vsize == 0)
+	{
+		int vcount = 3;
+		float verts[3] = {p[0], p[1], p[2]};
+		va.SetVertices(verts, vcount, vsize);
+	}
+	else
+	{
+		const float * p0 = vbase + vsize - 3;
+		int vcount = 6;
+		float verts[6] = {p0[0], p0[1], p0[0], p[0], p[1], p[2]};
+		va.SetVertices(verts, vcount, vsize);
 	}
 }
 
@@ -906,36 +869,38 @@ void AI::Visualize(AI_Car *c)
 	DRAWABLE & brakedraw = topnode.GetDrawlist().normal_noblend.get(c->brakedraw);
 	DRAWABLE & steerdraw = topnode.GetDrawlist().normal_noblend.get(c->steerdraw);
 
-	brakedraw.ClearLine();
+	brakedraw.SetLineSize(1);
+	brakedraw.SetVertArray(&c->brakeshape);
+	c->brakeshape.Clear();
 	for (std::vector <BEZIER>::iterator i = c->brakelook.begin(); i != c->brakelook.end(); ++i)
 	{
 		BEZIER & patch = *i;
-		brakedraw.AddLinePoint(TransformToWorldspace(patch.GetBL()));
-		brakedraw.AddLinePoint(TransformToWorldspace(patch.GetFL()));
-		brakedraw.AddLinePoint(TransformToWorldspace(patch.GetFR()));
-		brakedraw.AddLinePoint(TransformToWorldspace(patch.GetBR()));
-		brakedraw.AddLinePoint(TransformToWorldspace(patch.GetBL()));
-		brakedraw.AddLinePoint(TransformToWorldspace(patch.GetFL()));
+		AddLinePoint(c->brakeshape, TransformToWorldspace(patch.GetBL()));
+		AddLinePoint(c->brakeshape, TransformToWorldspace(patch.GetFL()));
+		AddLinePoint(c->brakeshape, TransformToWorldspace(patch.GetFR()));
+		AddLinePoint(c->brakeshape, TransformToWorldspace(patch.GetBR()));
+		AddLinePoint(c->brakeshape, TransformToWorldspace(patch.GetBL()));
+		AddLinePoint(c->brakeshape, TransformToWorldspace(patch.GetFL()));
 	}
 
-	steerdraw.ClearLine();
+	steerdraw.SetLineSize(1);
+	steerdraw.SetVertArray(&c->steershape);
+	c->steershape.Clear();
 	for (std::vector <BEZIER>::iterator i = c->steerlook.begin(); i != c->steerlook.end(); ++i)
 	{
 		BEZIER & patch = *i;
-		brakedraw.AddLinePoint(TransformToWorldspace(patch.GetBL()));
-		steerdraw.AddLinePoint(TransformToWorldspace(patch.GetFL()));
-		steerdraw.AddLinePoint(TransformToWorldspace(patch.GetBR()));
-		steerdraw.AddLinePoint(TransformToWorldspace(patch.GetFR()));
-		steerdraw.AddLinePoint(TransformToWorldspace(patch.GetBL()));
-		steerdraw.AddLinePoint(TransformToWorldspace(patch.GetFL()));
+		AddLinePoint(c->steershape, TransformToWorldspace(patch.GetBL()));
+		AddLinePoint(c->steershape, TransformToWorldspace(patch.GetFL()));
+		AddLinePoint(c->steershape, TransformToWorldspace(patch.GetBR()));
+		AddLinePoint(c->steershape, TransformToWorldspace(patch.GetFR()));
+		AddLinePoint(c->steershape, TransformToWorldspace(patch.GetBL()));
+		AddLinePoint(c->steershape, TransformToWorldspace(patch.GetFL()));
 	}
 }
 
 void AI::Visualize()
 {
 #ifdef VISUALIZE_AI_DEBUG
-	/*if (!AI_Cars.empty())
-		Visualize(&AI_Cars.back(), topnode);*/
 	for ( std::vector<AI_Car>::iterator it = AI_Cars.begin (); it != AI_Cars.end (); it++ )
 	{
 		Visualize(&(*it));

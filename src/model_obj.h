@@ -12,6 +12,7 @@ private:
 
 public:
 	MODEL_OBJ(const std::string & filepath, std::ostream & error_output) : MODEL(filepath, error_output) {}
+	MODEL_OBJ() : MODEL() {}
 
 	///returns true on success
 	virtual bool Load(const std::string & filepath, std::ostream & error_log, bool genlist = true);

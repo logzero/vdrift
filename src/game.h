@@ -13,10 +13,12 @@
 #include "text_draw.h"
 #include "gui.h"
 #include "car.h"
+#include "sim/world.h"
+#include "dynamicsdraw.h"
 #include "carcontrolmap_local.h"
 #include "hud.h"
 #include "inputgraph.h"
-#include "sound.h"
+#include "sounddevice.h"
 #include "camera.h"
 #include "trackmap.h"
 #include "loadingscreen.h"
@@ -114,7 +116,9 @@ private:
 	ContentManager content;
 	SETTINGS settings;
 
-	UPDATE_MANAGER updater;
+	AUTOUPDATE autoupdate;
+	UPDATE_MANAGER carupdater;
+	UPDATE_MANAGER trackupdater;
 
 	WINDOW_SDL window;
 	GRAPHICS_INTERFACE * graphics_interface;
@@ -122,7 +126,7 @@ private:
 	bool usingGL3;
 	StringIdMap stringMap;
 	EVENTSYSTEM_SDL eventsystem;
-	SOUND sound;
+	SOUNDDEVICE sound;
 
 	SCENENODE debugnode;
 	TEXT_DRAWABLE fps_draw;
@@ -158,6 +162,11 @@ private:
 	std::list <CAR> cars;
 	std::map <CAR *, int> cartimerids;
 	std::pair <CAR *, CARCONTROLMAP_LOCAL> carcontrols_local;
+
+	DynamicsDraw dynamics_draw;
+	sim::Config dynamics_config;
+	sim::World dynamics;
+	int dynamics_drawmode;
 
 	TRACKMAP trackmap;
 	TRACK track;

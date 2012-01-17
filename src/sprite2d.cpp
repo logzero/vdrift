@@ -35,7 +35,7 @@ bool SPRITE2D::Load(
 	texinfo.repeatv = false;
 	texinfo.npot = false;
 	std::tr1::shared_ptr<TEXTURE> texture;
-	if (!content.load(texturepath, texturename, texinfo, texture)) return false;
+	if (!content.load(texture, texturepath, texturename, texinfo)) return false;
 
 	node = parent.AddNode();
 	SCENENODE & noderef = parent.GetNode(node);

@@ -29,6 +29,7 @@ model = body.joe
 #size = 1, 1, 1 # axis aligned bounding box
 */
 
+class DynamicsWorld;
 class ContentManager;
 class btStridingMeshInterface;
 class btCompoundShape;
@@ -39,6 +40,7 @@ class TRACK::LOADER
 public:
 	LOADER(
 		ContentManager & content,
+		sim::World & world,
 		DATA & data,
 		std::ostream & info_output,
 		std::ostream & error_output,
@@ -64,6 +66,7 @@ public:
 
 private:
 	ContentManager & content;
+	sim::World & world;
 	DATA & data;
 	std::ostream & info_output;
 	std::ostream & error_output;
@@ -73,6 +76,7 @@ private:
 	const std::string & texturedir;
 	const std::string & sharedobjectpath;
 	const int anisotropy;
+	const bool reverse;
 	const bool dynamic_objects;
 	const bool dynamic_shadows;
 	const bool agressive_combining;
@@ -110,6 +114,22 @@ private:
 	};
 	typedef std::map<std::string, BODY>::const_iterator body_iterator;
 	std::map<std::string, BODY> bodies;
+
+	// batch static geometry with same diffuse texture
+	struct OBJECT
+	{
+		std::tr1::shared_ptr<MODEL> model;
+		std::string texture;
+		int transparent_blend;
+		int clamptexture;
+		int surface;
+		bool mipmap;
+		bool nolighting;
+		bool skybox;
+		bool collideable;
+		bool cached;
+	};
+	std::map<std::string, OBJECT> combined;
 
 	// compound track shape
 	btCompoundShape * track_shape;
@@ -154,6 +174,8 @@ private:
 	body_iterator LoadBody(const PTree & cfg);
 
 	void AddBody(SCENENODE & scene, const BODY & body);
+
+	bool AddObject(const OBJECT & object);
 
 	void Clear();
 };

@@ -29,25 +29,20 @@ src = Split("""aabb.cpp
 		camera_system.cpp
 		car.cpp
 		carcontrolmap_local.cpp
-		cardifferential.cpp
-		cardynamics.cpp
-		carengine.cpp
-		carsuspension.cpp
-		cartire.cpp
 		config.cpp
+		configfactory.cpp
 		containeralgorithm.cpp
 		contentmanager.cpp
 		crashdetection.cpp
 		downloadable.cpp
 		drawable.cpp
-		dynamicsworld.cpp
+		dynamicsdraw.cpp
 		endian_utility.cpp
 		eventsystem.cpp
 		fbobject.cpp
 		fbtexture.cpp
 		font.cpp
 		forcefeedback.cpp
-		fracturebody.cpp
 		game.cpp
 		graphics_config.cpp
 		graphics_config_condition.cpp
@@ -59,6 +54,8 @@ src = Split("""aabb.cpp
 		guipage.cpp
 		http.cpp
 		hud.cpp
+		hudbar.cpp
+		hudgauge.cpp
 		joepack.cpp
 		joeserialize.cpp
 		k1999.cpp
@@ -67,12 +64,14 @@ src = Split("""aabb.cpp
 		linearinterp.cpp
 		loadcollisionshape.cpp
 		loadingscreen.cpp
+		loadvehicle.cpp
 		main.cpp
 		mathplane.cpp
 		mathvector.cpp
 		matrix4.cpp
 		mesh_gen.cpp
 		model.cpp
+		modelfactory.cpp
 		model_joe03.cpp
 		model_obj.cpp
 		opengl_utility.cpp
@@ -94,13 +93,15 @@ src = Split("""aabb.cpp
 		settings.cpp
 		shader.cpp
 		sound.cpp
-		soundbuffer.cpp
+		sounddevice.cpp
+		soundfactory.cpp
 		soundfilter.cpp
 		soundsource.cpp
 		sprite2d.cpp
 		suspensionbumpdetection.cpp
 		svn_sourceforge.cpp
 		texture.cpp
+		texturefactory.cpp
 		text_draw.cpp
 		timer.cpp
 		toggle.cpp
@@ -138,7 +139,16 @@ src = Split("""aabb.cpp
 		gl3v/rendertextureentry.cpp
 		gl3v/renderuniform.cpp
 		gl3v/renderuniformentry.cpp
-		gl3v/stringidmap.cpp""")
+		gl3v/stringidmap.cpp
+		sim/differential.cpp
+		sim/engine.cpp
+		sim/fracturebody.cpp
+		sim/ray.cpp
+		sim/suspension.cpp
+		sim/tire.cpp
+		sim/vehicle.cpp
+		sim/wheel.cpp
+		sim/world.cpp""")
 
 src.sort(lambda x, y: cmp(x.lower(),y.lower()))
 

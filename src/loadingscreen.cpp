@@ -46,8 +46,8 @@ bool LOADINGSCREEN::Init(
 	TEXTUREINFO texinfo;
 	texinfo.mipmap = false;
 	std::tr1::shared_ptr<TEXTURE> boxtex, bartex;
-	if (!content.load(texturepath, "loadingbox.png", texinfo, boxtex)) return false;
-	if (!content.load(texturepath, "loadingbar.png", texinfo, bartex)) return false;
+	if (!content.load(boxtex, texturepath, "loadingbox.png", texinfo)) return false;
+	if (!content.load(bartex, texturepath, "loadingbar.png", texinfo)) return false;
 
 	bardraw = root.GetDrawlist().twodim.insert(DRAWABLE());
 	boxdraw = root.GetDrawlist().twodim.insert(DRAWABLE());

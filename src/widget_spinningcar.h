@@ -6,8 +6,6 @@
 #include "mathvector.h"
 #include "car.h"
 
-class TEXTUREMANAGER;
-class MODELMANAGER;
 class PATHMANAGER;
 
 class WIDGET_SPINNINGCAR : public WIDGET

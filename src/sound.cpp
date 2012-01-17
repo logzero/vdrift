@@ -1,320 +1,246 @@
 #include "sound.h"
-#include "unittest.h"
+#include "endian_utility.h"
 
-#include <SDL/SDL.h>
+#ifdef __APPLE__
+#define __MACOSX__
+#include <Vorbis/vorbisfile.h>
+#else
+#include <vorbis/vorbisfile.h>
+#endif
 
-#include <cassert>
-#include <sstream>
-#include <iostream>
-#include <string>
-#include <list>
+#include <fstream>
+#include <cstdio>
+#include <cstring>
 
-SOUND::SOUND() :
-	initdone(false),
-	paused(true),
-	deviceinfo(0,0,0,0),
-	gain_estimate(1.0),
-	disable(false),
-	sourcelistlock(0)
+bool SOUND::LoadWAV(const std::string & filename, const SOUNDINFO & sound_device_info, std::ostream & error_output)
 {
-	volume_filter.SetFilterOrder0(1.0);
-}
+	if (loaded)
+		Unload();
 
-SOUND::~SOUND()
-{
-	if (initdone)
+	name = filename;
+
+	FILE *fp;
+
+	unsigned int size;
+
+	fp = fopen(filename.c_str(), "rb");
+	if (fp)
 	{
-		SDL_CloseAudio();
-	}
+		char id[5]; //four bytes to hold 'RIFF'
 
-	if (sourcelistlock)
-		SDL_DestroyMutex(sourcelistlock);
-}
+		if (fread(id,sizeof(char),4,fp) != 4) return false; //read in first four bytes
+		id[4] = '\0';
+		if (!strcmp(id,"RIFF"))
+		{ //we had 'RIFF' let's continue
+			if (fread(&size,sizeof(unsigned int),1,fp) != 1) return false; //read in 32bit size value
+			size = ENDIAN_SWAP_32(size);
+			if (fread(id,sizeof(char),4,fp)!= 4) return false; //read in 4 byte string now
+			if (!strcmp(id,"WAVE"))
+			{ //this is probably a wave file since it contained "WAVE"
+				if (fread(id,sizeof(char),4,fp)!= 4) return false; //read in 4 bytes "fmt ";
+				if (!strcmp(id,"fmt "))
+				{
+					unsigned int format_length, sample_rate, avg_bytes_sec;
+					short format_tag, channels, block_align, bits_per_sample;
 
-void SOUND_CallbackWrapper(void *soundclass, Uint8 *stream, int len)
-{
-	((SOUND*)soundclass)->Callback16bitstereo(soundclass, stream, len);
-}
+					if (fread(&format_length, sizeof(unsigned int),1,fp) != 1) return false;
+					format_length = ENDIAN_SWAP_32(format_length);
+					if (fread(&format_tag, sizeof(short), 1, fp) != 1) return false;
+					format_tag = ENDIAN_SWAP_16(format_tag);
+					if (fread(&channels, sizeof(short),1,fp) != 1) return false;
+					channels = ENDIAN_SWAP_16(channels);
+					if (fread(&sample_rate, sizeof(unsigned int), 1, fp) != 1) return false;
+					sample_rate = ENDIAN_SWAP_32(sample_rate);
+					if (fread(&avg_bytes_sec, sizeof(unsigned int), 1, fp) != 1) return false;
+					avg_bytes_sec = ENDIAN_SWAP_32(avg_bytes_sec);
+					if (fread(&block_align, sizeof(short), 1, fp) != 1) return false;
+					block_align = ENDIAN_SWAP_16(block_align);
+					if (fread(&bits_per_sample, sizeof(short), 1, fp) != 1) return false;
+					bits_per_sample = ENDIAN_SWAP_16(bits_per_sample);
 
-bool SOUND::Init(int buffersize, std::ostream & info_output, std::ostream & error_output)
-{
-	if (disable || initdone)
-		return false;
 
-	sourcelistlock = SDL_CreateMutex();
+					//new wave seeking code
+					//find data chunk
+					bool found_data_chunk = false;
+					long filepos = format_length + 4 + 4 + 4 + 4 + 4;
+					int chunknum = 0;
+					while (!found_data_chunk && chunknum < 10)
+					{
+						fseek(fp, filepos, SEEK_SET); //seek to the next chunk
+						if (fread(id, sizeof(char), 4, fp) != 4) return false; //read in 'data'
+						if (fread(&size, sizeof(unsigned int), 1, fp) != 1) return false; //how many bytes of sound data we have
+						size = ENDIAN_SWAP_32(size);
+						if (!strcmp(id,"data"))
+						{
+							found_data_chunk = true;
+						}
+						else
+						{
+							filepos += size + 4 + 4;
+						}
 
-	SDL_AudioSpec desired, obtained;
+						chunknum++;
+					}
 
-	desired.freq = 44100;
-	desired.format = AUDIO_S16SYS;
-	desired.samples = buffersize;
-	desired.callback = SOUND_CallbackWrapper;
-	desired.userdata = this;
-	desired.channels = 2;
+					if (chunknum >= 10)
+					{
+						//cerr << __FILE__ << "," << __LINE__ << ": Sound file contains more than 10 chunks before the data chunk: " + filename << std::endl;
+						error_output << "Couldn't find wave data in first 10 chunks of " << filename << std::endl;
+						return false;
+					}
 
-	if (SDL_OpenAudio(&desired, &obtained) < 0)
-	{
-		//string error = SDL_GetError();
-		//UNRECOVERABLE_ERROR_FUNCTION(__FILE__,__LINE__,"Error opening audio device.");
-		error_output << "Error opening audio device, disabling sound." << std::endl;
-		//throw EXCEPTION(__FILE__, __LINE__, "Error opening audio device: " + error);
-		Disable();
-		return false;
-	}
+					sound_buffer = new char[size];
 
-	int frequency = obtained.freq;
-	int channels = obtained.channels;
-	int samples = obtained.samples;
-	int bytespersample = 2;
-	if (obtained.format == AUDIO_U8 || obtained.format == AUDIO_S8)
-	{
-		bytespersample = 1;
-	}
+					if (fread(sound_buffer, sizeof(char), size, fp) != size) return false; //read in our whole sound data chunk
 
-	if (obtained.format != desired.format)
-	{
-		//cout << "Warning: obtained audio format isn't the same as the desired format!" << std::endl;
-		error_output << "Obtained audio format isn't the same as the desired format, disabling sound." << std::endl;
-		Disable();
-		return false;
-	}
+#if SDL_BYTEORDER == SDL_BIG_ENDIAN
+					if (bits_per_sample == 16)
+					{
+						for (unsigned int i = 0; i < size/2; i++)
+						{
+							//cout << "preswap i: " << sound_buffer[i] << "preswap i+1: " << sound_buffer[i+1] << std::endl;
+							//short preswap = ((short *)sound_buffer)[i];
+							((short *)sound_buffer)[i] = ENDIAN_SWAP_16(((short *)sound_buffer)[i]);
+							//cout << "postswap i: " << sound_buffer[i] << "postswap i+1: " << sound_buffer[i+1] << std::endl;
+							//cout << (int) i << "/" << (int) size << std::endl;
+							//short postswap = ((short *)sound_buffer)[i];
+							//cout << preswap << "/" << postswap << std::endl;
 
-	std::stringstream dout;
-	dout << "Obtained audio device:" << std::endl;
-	dout << "Frequency: " << frequency << std::endl;
-	dout << "Format: " << obtained.format << std::endl;
-	dout << "Bits per sample: " << bytespersample * 8 << std::endl;
-	dout << "Channels: " << channels << std::endl;
-	dout << "Silence: " << (int) obtained.silence << std::endl;
-	dout << "Samples: " << samples << std::endl;
-	dout << "Size: " << (int) obtained.size << std::endl;
-	info_output << "Sound initialization information:" << std::endl << dout.str();
-	//cout << dout.str() << std::endl;
-	if (bytespersample != 2 || obtained.channels != desired.channels || obtained.freq != desired.freq)
-	{
-		//throw EXCEPTION(__FILE__, __LINE__, "Sound did not create a 44.1kHz, 16 bit, stereo device as requested.");
-		//cerr << __FILE__ << "," << __LINE__ << ": Sound interface did not create a 44.1kHz, 16 bit, stereo device as requested.  Disabling game.sound." << std::endl;
-		error_output << "Sound interface did not create a 44.1kHz, 16 bit, stereo device as requested.  Disabling sound." << std::endl;
-		Disable();
-		return false;
-	}
+						}
+					}
+					//else if (bits_per_sample != 8)
+					else
+					{
+						error_output << "Sound file with " << bits_per_sample << " bits per sample not supported" << std::endl;
+						return false;
+					}
+#endif
 
-	deviceinfo = SOUNDINFO(samples, frequency, channels, bytespersample);
+					info = SOUNDINFO(size/(bits_per_sample/8), sample_rate, channels, bits_per_sample/8);
+					SOUNDINFO original_info(size/(bits_per_sample/8), sample_rate, channels, bits_per_sample/8);
 
-	initdone = true;
+					loaded = true;
+					SOUNDINFO desired_info(original_info.samples, sound_device_info.frequency, original_info.channels, sound_device_info.bytespersample);
+					//ConvertTo(desired_info);
+					if (desired_info == original_info)
+					{
 
-	SetMasterVolume(1.0);
-
-	return true;
-}
-
-void SOUND::Pause(const bool pause_on)
-{
-	if (paused == pause_on) //take no action if no change
-		return;
-
-	paused = pause_on;
-	if (pause_on)
-	{
-		//cout << "sound pause on" << std::endl;
-		SDL_PauseAudio(1);
+					}
+					else
+					{
+						error_output << "SOUND FORMAT:" << std::endl;
+						original_info.DebugPrint(error_output);
+						error_output << "DESIRED FORMAT:" << std::endl;
+						desired_info.DebugPrint(error_output);
+						//throw EXCEPTION(__FILE__, __LINE__, "Sound file isn't in desired format: " + filename);
+						//cerr << __FILE__ << "," << __LINE__ << ": Sound file isn't in desired format: " + filename << std::endl;
+						error_output << "Sound file isn't in desired format: "+filename << std::endl;
+						return false;
+					}
+				}
+				else
+				{
+					//throw EXCEPTION(__FILE__, __LINE__, "Sound file doesn't have \"fmt \" header: " + filename);
+					//cerr << __FILE__ << "," << __LINE__ << ": Sound file doesn't have \"fmt \" header: " + filename << std::endl;
+					error_output << "Sound file doesn't have \"fmt\" header: "+filename << std::endl;
+					return false;
+				}
+			}
+			else
+			{
+				//throw EXCEPTION(__FILE__, __LINE__, "Sound file doesn't have WAVE header: " + filename);
+				//cerr << __FILE__ << "," << __LINE__ << ": Sound file doesn't have WAVE header: " + filename << std::endl;
+				error_output << "Sound file doesn't have WAVE header: "+filename << std::endl;
+				return false;
+			}
+		}
+		else
+		{
+			//throw EXCEPTION(__FILE__, __LINE__, "Sound file doesn't have RIFF header: " + filename);
+			//cerr << __FILE__ << "," << __LINE__ << ": Sound file doesn't have WAVE header: " + filename << std::endl;
+			error_output << "Sound file doesn't have RIFF header: "+filename << std::endl;
+			return false;
+		}
+		fclose(fp);
 	}
 	else
 	{
-		//cout << "sound pause off" << std::endl;
-		SDL_PauseAudio(0);
+		//throw EXCEPTION(__FILE__, __LINE__, "Can't open sound file: " + filename);
+		//cerr << __FILE__ << "," << __LINE__ << ": Can't open sound file: " + filename << std::endl;
+		error_output << "Can't open sound file: "+filename << std::endl;
+		return false;
 	}
+
+	//cout << size << std::endl;
+	return true;
 }
 
-void SOUND::Callback16bitstereo(void *myself, Uint8 *stream, int len)
+bool SOUND::LoadOGG(const std::string & filename, const SOUNDINFO & sound_device_info, std::ostream & error_output)
 {
-	assert(this == myself);
-	assert(initdone);
+	if (loaded)
+		Unload();
 
-	std::list <SOUNDSOURCE *> active_sourcelist;
-	std::list <SOUNDSOURCE *> inactive_sourcelist;
+	name = filename;
 
-	LockSourceList();
+	FILE *fp;
 
-	DetermineActiveSources(active_sourcelist, inactive_sourcelist);
-	Compute3DEffects(active_sourcelist, lpos, lrot);//, cam.GetPosition().ScaleR(-1), cam.GetRotation());
+	unsigned int samples;
 
-	//increment inactive sources
-	for (std::list <SOUNDSOURCE *>::iterator s = inactive_sourcelist.begin(); s != inactive_sourcelist.end(); s++)
+	fp = fopen(filename.c_str(), "rb");
+	if (fp)
 	{
-		(*s)->IncrementWithPitch(len/4);
-	}
+		vorbis_info *pInfo;
+		OggVorbis_File oggFile;
 
-	int * buffer1 = new int[len/4];
-	int * buffer2 = new int[len/4];
-	for (std::list <SOUNDSOURCE *>::iterator s = active_sourcelist.begin(); s != active_sourcelist.end(); s++)
+		ov_open_callbacks(fp, &oggFile, NULL, 0, OV_CALLBACKS_DEFAULT);
+
+		pInfo = ov_info(&oggFile, -1);
+
+		//I assume ogg is always 16-bit (2 bytes per sample) -Venzon
+		samples = ov_pcm_total(&oggFile,-1);
+		info = SOUNDINFO(samples*pInfo->channels, pInfo->rate, pInfo->channels, 2);
+
+		SOUNDINFO desired_info(info.samples, sound_device_info.frequency, info.channels, sound_device_info.bytespersample);
+
+		if (!(desired_info == info))
+		{
+			error_output << "SOUND FORMAT:" << std::endl;
+			info.DebugPrint(error_output);
+			error_output << "DESIRED FORMAT:" << std::endl;
+			desired_info.DebugPrint(error_output);
+
+			error_output << "Sound file isn't in desired format: "+filename << std::endl;
+			ov_clear(&oggFile);
+			return false;
+		}
+
+		//allocate space
+		unsigned int size = info.samples*info.channels*info.bytespersample;
+		sound_buffer = new char[size];
+		int bitstream;
+		int endian = 0; //0 for Little-Endian, 1 for Big-Endian
+		int wordsize = 2; //again, assuming ogg is always 16-bits
+		int issigned = 1; //use signed data
+
+		int bytes = 1;
+		unsigned int bufpos = 0;
+		while (bytes > 0)
+		{
+			bytes = ov_read(&oggFile, sound_buffer+bufpos, size-bufpos, endian, wordsize, issigned, &bitstream);
+			bufpos += bytes;
+			//cout << bytes << "...";
+		}
+
+		loaded = true;
+
+		//note: no need to call fclose(); ov_clear does it for us
+		ov_clear(&oggFile);
+
+		return true;
+	}
+	else
 	{
-		SOUNDSOURCE * src = *s;
-		src->SampleAndAdvanceWithPitch16bit(buffer1, buffer2, len/4);
-		for (int f = 0; f < src->NumFilters(); f++)
-		{
-			src->GetFilter(f).Filter(buffer1, buffer2, len/4);
-		}
-		volume_filter.Filter(buffer1, buffer2, len/4);
-		if (s == active_sourcelist.begin())
-		{
-			for (int i = 0; i < len/4; i++)
-			{
-				int pos = i*2;
-				((short *) stream)[pos] = (buffer1[i]);
-				((short *) stream)[pos+1] = (buffer2[i]);
-			}
-		}
-		else
-		{
-			for (int i = 0; i < len/4; i++)
-			{
-				int pos = i*2;
-				((short *) stream)[pos] += (buffer1[i]);
-				((short *) stream)[pos+1] += (buffer2[i]);
-			}
-		}
-	}
-	delete [] buffer1;
-	delete [] buffer2,
-
-	UnlockSourceList();
-
-	//cout << active_sourcelist.size() << "," << inactive_sourcelist.size() << std::endl;
-
-	if (active_sourcelist.empty())
-	{
-		for (int i = 0; i < len/4; i++)
-		{
-			int pos = i*2;
-			((short *) stream)[pos] = ((short *) stream)[pos+1] = 0;
-		}
-	}
-
-	CollectGarbage();
-
-	//cout << "Callback: " << len << std::endl;
-}
-
-void SOUND::CollectGarbage()
-{
-	if (disable)
-		return;
-
-	std::list <SOUNDSOURCE *> todel;
-	for (std::list <SOUNDSOURCE *>::iterator i = sourcelist.begin(); i != sourcelist.end(); ++i)
-	{
-		if (!(*i)->Audible() && (*i)->GetAutoDelete())
-		{
-			todel.push_back(*i);
-		}
-	}
-
-	for (std::list <SOUNDSOURCE *>::iterator i = todel.begin(); i != todel.end(); ++i)
-	{
-		RemoveSource(*i);
-	}
-
-	//cout << sourcelist.size() << std::endl;
-}
-
-void SOUND::DetermineActiveSources(std::list <SOUNDSOURCE *> & active_sourcelist, std::list <SOUNDSOURCE *> & inaudible_sourcelist) const
-{
-	active_sourcelist.clear();
-	inaudible_sourcelist.clear();
-	//int sourcenum = 0;
-	for (std::list <SOUNDSOURCE *>::const_iterator i = sourcelist.begin(); i != sourcelist.end(); ++i)
-	{
-		if ((*i)->Audible())
-		{
-			active_sourcelist.push_back(*i);
-			//cout << "Tick: " << &(*i) << std::endl;
-			//cout << "Source is audible: " << i->GetName() << ", " << i->GetGain() << ":" << i->ComputedGain(1) << "," << i->ComputedGain(2) << std::endl;
-			//cout << "Source " << sourcenum << " is audible: " << i->GetName() << std::endl;
-		}
-		else
-		{
-			inaudible_sourcelist.push_back(*i);
-		}
-		//sourcenum++;
-	}
-	//cout << "sounds active: " << active_sourcelist.size() << ", sounds inactive: " << inaudible_sourcelist.size() << std::endl;
-}
-
-void SOUND::RemoveSource(SOUNDSOURCE * todel)
-{
-	if (disable)
-		return;
-
-	assert(todel);
-
-	std::list <SOUNDSOURCE *>::iterator delit = sourcelist.end();
-	for (std::list <SOUNDSOURCE *>::iterator i = sourcelist.begin(); i != sourcelist.end(); ++i)
-	{
-		if (*i == todel)
-			delit = i;
-	}
-
-	//assert(delit != sourcelist.end()); //can't find source to delete //update: don't assert, just do a check
-
-	LockSourceList();
-	if (delit != sourcelist.end())
-		sourcelist.erase(delit);
-	UnlockSourceList();
-}
-
-void SOUND::Compute3DEffects(std::list <SOUNDSOURCE *> & sources, const MATHVECTOR <float, 3> & listener_pos, const QUATERNION <float> & listener_rot) const
-{
-	for (std::list <SOUNDSOURCE *>::iterator i = sources.begin(); i != sources.end(); ++i)
-	{
-		if ((*i)->Get3DEffects())
-		{
-			MATHVECTOR <float, 3> relvec = (*i)->GetPosition() - listener_pos;
-			//std::cout << "sound pos: " << (*i)->GetPosition() << std::endl;;
-			//std::cout << "listener pos: " << listener_pos << std::endl;;
-			//cout << "listener pos: ";listener_pos.DebugPrint();
-			//cout << "camera pos: ";cam.GetPosition().ScaleR(-1.0).DebugPrint();
-			float len = relvec.Magnitude();
-			if (len < 0.1)
-			{
-				relvec[2] = 0.1;
-				len = relvec.Magnitude();
-			}
-			listener_rot.RotateVector(relvec);
-			float cgain = log(1000.0 / pow((double)len, 1.3)) / log(100.0);
-			if (cgain > 1.0)
-				cgain = 1.0;
-			if (cgain < 0.0)
-				cgain = 0.0;
-			float xcoord = -relvec.Normalize()[1];
-			//std::cout << (*i)->GetPosition() << " || " << listener_pos << " || " << xcoord << std::endl;
-			float pgain1 = -xcoord;
-			if (pgain1 < 0)
-				pgain1 = 0;
-			float pgain2 = xcoord;
-			if (pgain2 < 0)
-				pgain2 = 0;
-			//cout << cgain << std::endl;
-			//cout << xcoord << std::endl;
-			(*i)->SetComputationResults(cgain*(*i)->GetGain()*(1.0-pgain1), cgain*(*i)->GetGain()*(1.0-pgain2));
-		}
-		else
-		{
-			(*i)->SetComputationResults((*i)->GetGain(), (*i)->GetGain());
-		}
-	}
-}
-
-void SOUND::LockSourceList()
-{
-	if (SDL_mutexP(sourcelistlock)==-1){
-		assert(0 && "Couldn't lock mutex");
-	}
-}
-
-void SOUND::UnlockSourceList()
-{
-	if (SDL_mutexV(sourcelistlock)==-1){
-		assert(0 && "Couldn't unlock mutex");
+		error_output << "Can't open sound file: "+filename << std::endl;
+		return false;
 	}
 }
