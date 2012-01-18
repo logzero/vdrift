@@ -94,6 +94,12 @@ void Vehicle::init(
 	world.addAction(this);
 	this->world = &world;
 
+	aero_device.resize(info.aerodevice.size());
+	for (int i = 0; i < info.aerodevice.size(); ++i)
+	{
+		aero_device[i] = AeroDevice(info.aerodevice[i]);
+	}
+
 	differential.resize(info.differential.size());
 	wheel.resize(info.wheel.size());
 	wheel_contact.resize(wheel.size());
@@ -572,21 +578,21 @@ void Vehicle::updateAction(btCollisionWorld * collisionWorld, btScalar dt)
 
 void Vehicle::updateAerodynamics(btScalar dt)
 {
-	btVector3 wind_force(0, 0, 0);
-	btVector3 wind_torque(0, 0, 0);
+	aero_force.setValue(0, 0, 0);
+	aero_torque.setValue(0, 0, 0);
 	const btMatrix3x3 inv = body->getCenterOfMassTransform().getBasis().transpose();
 	btVector3 air_velocity = -(inv * getVelocity());
 	for (int i = 0; i < aero_device.size(); ++i)
 	{
 		btVector3 force = aero_device[i].getForce(air_velocity);
 		btVector3 position = aero_device[i].getPosition() + body->getCenterOfMassOffset();
-		wind_force = wind_force + force;
-		wind_torque = wind_torque + position.cross(force);
+		aero_force = aero_force + force;
+		aero_torque = aero_torque + position.cross(force);
 	}
-	wind_force = body->getCenterOfMassTransform().getBasis() * wind_force;
-	wind_torque = body->getCenterOfMassTransform().getBasis() * wind_torque;
-	body->applyCentralImpulse(wind_force * dt);
-	body->applyTorqueImpulse(wind_torque * dt);
+	btVector3 force = body->getCenterOfMassTransform().getBasis() * aero_force;
+	btVector3 torque = body->getCenterOfMassTransform().getBasis() * aero_torque;
+	body->applyCentralImpulse(force * dt);
+	body->applyTorqueImpulse(torque * dt);
 }
 
 void Vehicle::updateWheelTransform(btScalar dt)
@@ -869,11 +875,17 @@ void Vehicle::print(std::ostream & out) const
 {
 	const btVector3 & v = body->getLinearVelocity();
 	const btVector3 & p = body->getCenterOfMassPosition();
+	const btVector3 & c = body->getCenterOfMassOffset();
 
 	out << std::fixed << std::setprecision(3);
 	out << "velocity " << v.x() << " " << v.y() << " " << v.z() << "\n";
 	out << "position " << p.x() << " " << p.y() << " " << p.z() << "\n";
+	out << "mass center " << -c.x() << " " << -c.y() << " " << -c.z() << "\n";
 	out << "mass " << 1 / body->getInvMass() << "\n\n";
+
+	out << "aero force " << aero_force.x() << " " << aero_force.y() << " " << aero_force.z() << "\n";
+	out << "aero torque " << aero_torque.x() << " " << aero_torque.y() << " " << aero_torque.z() << "\n";
+	out << "lift/drag " << aero_force.z() / aero_force.y() << "\n\n";
 
 	const ClutchJoint & cjoint = clutch_joint[differential.size()];
 	out << "engine rpm " << engine.getRPM() << "\n";
@@ -884,10 +896,12 @@ void Vehicle::print(std::ostream & out) const
 
 	for (int i = 0; i < wheel.size(); ++i)
 	{
+		const Wheel & w = wheel[i];
 		out << "wheel " << i << "\n";
-		out << "ideal slide " << wheel[i].tire.getIdealSlide() << "\n";
-		out << "slide " << wheel[i].tire.getSlide() << "\n";
-		out << "rpm " << wheel[i].shaft.getAngularVelocity() * 30 / M_PI << "\n\n";
+		out << "load " << w.suspension.getDisplacement() * w.suspension.getStiffness() << "\n";
+		out << "ideal slide " << w.tire.getIdealSlide() << "\n";
+		out << "slide " << w.tire.getSlide() << "\n";
+		out << "rpm " << w.shaft.getAngularVelocity() * 30 / M_PI << "\n\n";
 	}
 }
 

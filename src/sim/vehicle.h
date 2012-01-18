@@ -167,6 +167,10 @@ protected:
 	std::vector<int> abs_active;
 	std::vector<int> tcs_active;
 
+	// aerodynamic force and torque for debugging
+	btVector3 aero_force;
+	btVector3 aero_torque;
+
 	// approximate total lateral and longitudinal friction coefficients
 	// used for braking distance and max curve velocity estimation
 	btScalar lon_friction_coeff;
