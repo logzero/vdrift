@@ -62,6 +62,12 @@ public:
 		return brake_factor;
 	}
 
+	/// maximum brake torque
+	btScalar getMaxTorque() const
+	{
+		return max_torque;
+	}
+
 	/// brake torque magnitude
 	btScalar getTorque()
 	{

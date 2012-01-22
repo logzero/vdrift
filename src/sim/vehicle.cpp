@@ -24,11 +24,6 @@
 #include "coordinatesystem.h"
 #include "BulletCollision/CollisionShapes/btCollisionShape.h"
 
-template <class T> static inline bool isnan(const T & x)
-{
-	return x != x;
-}
-
 namespace sim
 {
 
@@ -58,6 +53,8 @@ Vehicle::Vehicle() :
 	autoclutch(true),
 	autoshift(false),
 	shifted(true),
+	abs_active(false),
+	tcs_active(false),
 	abs(false),
 	tcs(false),
 	maxangle(0),
@@ -106,12 +103,12 @@ void Vehicle::init(
 	diff_joint.resize(differential.size());
 	clutch_joint.resize(differential.size() + 1);
 	motor_joint.resize(wheel.size() * 2 + 1);
-	abs_active.resize(wheel.size(), false);
-	tcs_active.resize(wheel.size(), false);
+	wheel_angvel.resize(info.wheel.size());
 
 	for (int i = 0; i < wheel.size(); ++i)
 	{
 		wheel[i].init(info.wheel[i], world, *body);
+		wheel_angvel[i] = 0;
 		maxangle = btMax(maxangle, wheel[i].suspension.getMaxSteeringAngle());
 	}
 
@@ -142,12 +139,6 @@ void Vehicle::init(
 void Vehicle::debugDraw(btIDebugDraw*)
 {
 	// nothing to do here
-}
-
-const btVector3 & Vehicle::getWheelVelocity(int i) const
-{
-	static btVector3 zero(0, 0, 0);
-	return zero;//wheel[i].getVelocity(); fixme
 }
 
 const btVector3 & Vehicle::getCenterOfMass() const
@@ -244,34 +235,18 @@ btScalar Vehicle::getTachoRPM() const
 	return tacho_rpm;
 }
 
-void Vehicle::setABS(const bool newabs)
+void Vehicle::setABS(bool value)
 {
-	abs = newabs;
+	abs = value;
+	for (int i = 0; i < wheel.size(); ++i)
+	{
+		wheel[i].setABS(value);
+	}
 }
 
-bool Vehicle::getABSEnabled() const
+void Vehicle::setTCS(bool value)
 {
-	return abs;
-}
-
-bool Vehicle::getABSActive() const
-{
-	return abs && ( abs_active[0]||abs_active[1]||abs_active[2]||abs_active[3] );
-}
-
-void Vehicle::setTCS ( const bool newtcs )
-{
-	tcs = newtcs;
-}
-
-bool Vehicle::getTCSEnabled() const
-{
-	return tcs;
-}
-
-bool Vehicle::getTCSActive() const
-{
-	return tcs && ( tcs_active[0]||tcs_active[1]||tcs_active[2]||tcs_active[3] );
+	tcs = value;
 }
 
 void Vehicle::setPosition(const btVector3 & position)
@@ -452,6 +427,7 @@ void Vehicle::updateAction(btCollisionWorld * collisionWorld, btScalar dt)
 	// wheels
 	int mcount = 0;
 	int wcount = 0;
+	abs_active = false;
 	for (int i = 0; i < wheel.size(); ++i)
 	{
 		if (wheel[i].update(dt, wheel_contact[wcount]))
@@ -462,9 +438,10 @@ void Vehicle::updateAction(btCollisionWorld * collisionWorld, btScalar dt)
 			joint.shaft = &wheel[i].shaft;
 			joint.targetVelocity = wheel_contact[wcount].v1 / wheel[i].getRadius();
 			joint.accumulatedImpulse = 0;
+			abs_active |= wheel[i].getABS();
 			mcount++;
 			wcount++;
-		}
+		}		
 	}
 
 	// engine
@@ -478,12 +455,13 @@ void Vehicle::updateAction(btCollisionWorld * collisionWorld, btScalar dt)
 	// brakes
 	for (int i = 0; i < wheel.size(); ++i)
 	{
-		if (wheel[i].brake.getBrakeFactor() > 1E-3)
+		btScalar torque = wheel[i].brake.getTorque();
+		if (torque > 0)
 		{
 			MotorJoint & joint = motor_joint[mcount];
 			joint.shaft = &wheel[i].shaft;
 			joint.targetVelocity = 0;
-			joint.impulseLimit = wheel[i].brake.getTorque() * dt;
+			joint.impulseLimit = torque * dt;
 			joint.accumulatedImpulse = 0;
 			mcount++;
 		}
@@ -609,98 +587,6 @@ void Vehicle::updateWheelTransform(btScalar dt)
 	}
 }
 
-void Vehicle::doTCS(int i, btScalar suspension_force)
-{
-	// only active if throttle commanded past threshold
-	btScalar gasthresh = 0.1;
-	btScalar gas = engine.getThrottle();
-	if (gas > gasthresh)
-	{
-		// see if we're spinning faster than the rest of the wheels
-		btScalar maxspindiff = 0;
-		btScalar angvelocity = wheel[i].shaft.getAngularVelocity();
-		for (int i2 = 0; i2 < wheel.size(); ++i2)
-		{
-			btScalar spindiff = angvelocity - wheel[i2].shaft.getAngularVelocity();
-			if (spindiff < 0)
-				spindiff = -spindiff;
-			if (spindiff > maxspindiff)
-				maxspindiff = spindiff;
-		}
-
-		// don't engage if all wheels are moving at the same rate
-		if (maxspindiff > 1.0)
-		{
-			btScalar sense = 1.0;
-			if (transmission.getGear() < 0)
-				sense = -1.0;
-
-			btScalar sp = wheel[i].tire.getIdealSlide();
-			btScalar error = wheel[i].tire.getSlide() * sense - sp;
-			btScalar thresholdeng = 0.0;
-			btScalar thresholddis = -sp/2.0;
-
-			if (error > thresholdeng && !tcs_active[i])
-				tcs_active[i] = true;
-
-			if (error < thresholddis && tcs_active[i])
-				tcs_active[i] = false;
-
-			if (tcs_active[i])
-			{
-				btScalar curclutch = clutch.getPosition();
-				btClamp(curclutch, 0.0f, btScalar(1));
-
-				gas = gas - error * 10 * curclutch;
-				btClamp(gas, btScalar(0), btScalar(1));
-
-				engine.setThrottle(gas);
-			}
-		}
-		else
-			tcs_active[i] = false;
-	}
-	else
-		tcs_active[i] = false;
-}
-
-void Vehicle::doABS(int i, btScalar suspension_force)
-{
-	// only active if brakes commanded past threshold
-	btScalar brakefactor = wheel[i].brake.getBrakeFactor();
-	if (brakefactor > 0.1)
-	{
-		btScalar maxspeed = 0;
-		for (int i2 = 0; i2 < wheel.size(); ++i2)
-		{
-			if (wheel[i2].shaft.getAngularVelocity() > maxspeed)
-				maxspeed = wheel[i2].shaft.getAngularVelocity();
-		}
-
-		// don't engage ABS if all wheels are moving slowly
-		if (maxspeed > 6.0)
-		{
-			btScalar sp = wheel[i].tire.getIdealSlide();
-			btScalar error = - wheel[i].tire.getSlide() - sp;
-			btScalar thresholdeng = 0.0;
-			btScalar thresholddis = -sp/2.0;
-
-			if (error > thresholdeng && !abs_active[i])
-				abs_active[i] = true;
-
-			if (error < thresholddis && abs_active[i])
-				abs_active[i] = false;
-		}
-		else
-			abs_active[i] = false;
-	}
-	else
-		abs_active[i] = false;
-
-	if (abs_active[i])
-		wheel[i].brake.setBrakeFactor(0);
-}
-
 void Vehicle::updateTransmission(btScalar dt)
 {
 	btScalar clutch_rpm = transmission.getClutchRPM();
@@ -766,12 +652,6 @@ btScalar Vehicle::autoClutch(btScalar clutch_rpm, btScalar last_clutch, btScalar
 
 	// shift time
 	clutch_value *= shiftAutoClutch();
-
-	// brakes engaged
-	if (wheel[0].brake.getBrakeFactor() > 0.9)
-	{
-		clutch_value = 0.0;
-	}
 
 	// rate limit the autoclutch
 	btScalar engage_limit = 20 * dt;

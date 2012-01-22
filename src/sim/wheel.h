@@ -55,14 +55,17 @@ public:
 		const WheelInfo & info,
 		btCollisionWorld & world,
 		FractureBody & body);
-	
+
 	// wheel ray test
 	// returns false if there is no contact
 	bool updateContact(btScalar raylen = 2);
-	
+
 	// update contact and setup wheel constraint
 	// returns false if there is no contact
 	bool update(btScalar dt, WheelContact & contact);
+
+	// enable/disable abs
+	void setABS(bool value);
 
 	// wheel contact velocity
 	//const btVector3 & getVelocity() const { return vAB; }
@@ -76,6 +79,9 @@ public:
 	// wheel width
 	btScalar getWidth() const { return width; }
 
+	// true if abs active
+	bool getABS() const { return abs_active; }
+
 	Suspension suspension;
 	Shaft shaft;
 	Brake brake;
@@ -86,9 +92,12 @@ private:
 	btCollisionWorld * world;
 	FractureBody * body;
 	btTransform transform;
+	btScalar angvel;
 	btScalar radius;
 	btScalar width;
 	btScalar mass;
+	bool abs_enabled;
+	bool abs_active;
 };
 
 }

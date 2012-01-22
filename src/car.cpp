@@ -1131,7 +1131,7 @@ void CAR::UpdateSounds(float dt)
 		MATHVECTOR <float, 3> wpos = GetWheelPosition(i);
 		thesound->SetPosition(wpos[0], wpos[1], wpos[2]);
 
-		btVector3 vel = dynamics.getWheelVelocity(i);
+		btVector3 vel(0,0,0);// = dynamics.getWheelVelocity(i);
 		float pitch = (vel.length() - 5.0) * 0.1;
 		if (pitch < 0)
 			pitch = 0;
@@ -1408,7 +1408,7 @@ float CAR::GetTireSquealAmount(int i) const
 	if (!surface || surface == sim::Surface::None()) return 0;
 
 	const sim::Wheel & wheel = dynamics.getWheel(i);
-	btVector3 vel = dynamics.getWheelVelocity(i);
+	btVector3 vel(0,0,0);// = dynamics.getWheelVelocity(i);
 
 	float squeal = (vel.length() - 3.0) * 0.2;
 	float slide = wheel.tire.getSlide() / wheel.tire.getIdealSlide();
@@ -1417,7 +1417,7 @@ float CAR::GetTireSquealAmount(int i) const
 	float squealfactor = std::max(0.0, maxratio - 1.0);
 	squeal = squeal * squealfactor;
 	if (squeal < 0) squeal = 0;
-	if (squeal > 1) squeal = 1;
+	else if (squeal > 1) squeal = 1;
 
 	return squeal;
 }

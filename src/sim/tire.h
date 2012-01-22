@@ -46,6 +46,8 @@ public:
 
 	void init(const TireInfo & info);
 
+	btScalar getTread() const {return tread;}
+
 	/// normal_force: tire load in newton
 	/// friction_coeff: contact surface friction coefficient
 	/// inclination: wheel inclination (camber) in degrees
@@ -61,7 +63,6 @@ public:
 		btScalar lat_velocity);
 
 	/// cached state, modified by getForce
-	btScalar getTread() const {return tread;}
 	btScalar getFeedback() const {return mz;}
 	btScalar getSlide() const {return slide;}
 	btScalar getSlip() const {return slip;}

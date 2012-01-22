@@ -85,11 +85,6 @@ public:
 	void debugDraw(btIDebugDraw * debugDrawer);
 
 	// body state
-	int getWeelCount() const { return wheel.size(); }
-	//btQuaternion getUprightOrientation(int i) const;
-	//const btQuaternion & getWheelOrientation(int i) const;
-	//const btVector3 & getWheelPosition(int i) const;
-	const btVector3 & getWheelVelocity(int i) const;
 	const btVector3 & getCenterOfMass() const;
 	const btVector3 & getVelocity() const;
 	btScalar getInvMass() const;
@@ -119,19 +114,20 @@ public:
 	// steering feedback
 	btScalar getFeedback() const;
 
-	// traction control state
-	bool getABSEnabled() const;
-	bool getTCSEnabled() const;
-	bool getABSActive() const;
-	bool getTCSActive() const;
-
 	// driveline state access
+	int getWeelCount() const						{ return wheel.size(); }
 	const Engine & getEngine() const				{ return engine; }
 	const Clutch & getClutch() const				{ return clutch; }
 	const Transmission & getTransmission() const	{ return transmission; }
 	const Wheel & getWheel(int i) const				{ return wheel[i]; }
 	btScalar getNosAmount() const					{ return engine.getNos(); }
 	bool getOutOfGas() const						{ return engine.getFuel() < 1E-3; }
+
+	// traction control state
+	bool getABSEnabled() const	{ return abs; }
+	bool getTCSEnabled() const	{ return tcs; }
+	bool getABSActive() const	{ return abs_active; }
+	bool getTCSActive() const	{ return tcs_active; }
 
 	// debugging
 	void print(std::ostream & out) const;
@@ -153,6 +149,9 @@ protected:
 	btAlignedObjectArray<ClutchJoint> clutch_joint;
 	btAlignedObjectArray<MotorJoint> motor_joint;
 
+	// cache wheel angular velocity to be able to calculate applied torque
+	btAlignedObjectArray<btScalar> wheel_angvel;
+
 	btScalar last_auto_clutch;
 	btScalar remaining_shift_time;
 	btScalar tacho_rpm;
@@ -160,12 +159,10 @@ protected:
 	bool autoclutch;
 	bool autoshift;
 	bool shifted;
+	bool abs_active;
+	bool tcs_active;
 	bool abs;
 	bool tcs;
-
-	// abs, tcs state
-	std::vector<int> abs_active;
-	std::vector<int> tcs_active;
 
 	// aerodynamic force and torque for debugging
 	btVector3 aero_force;
@@ -190,14 +187,6 @@ protected:
 
 	// update wheel position, rotation
 	void updateWheelTransform(btScalar dt);
-
-	// do traction control system (wheelspin prevention) calculations
-	// modify the throttle position if necessary
-	void doTCS(int i, btScalar suspension_force);
-
-	// do anti-lock brake system calculations
-	// modify the brake force if necessary
-	void doABS(int i, btScalar suspension_force);
 
 	btScalar autoClutch(btScalar clutch_rpm, btScalar last_clutch, btScalar dt) const;
 
