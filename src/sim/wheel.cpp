@@ -40,7 +40,9 @@ Wheel::Wheel() :
 	width(0.2),
 	mass(1),
 	abs_enabled(false),
-	abs_active(false)
+	tcs_enabled(false),
+	abs_active(false),
+	tcs_active(false)
 {
 	//ctor
 }
@@ -230,7 +232,7 @@ bool Wheel::update(btScalar dt, WheelContact & contact)
 		angvel_delta = angvel_new - angvel_target;
 		if (angvel_delta < 0)
 		{
-			// reduce brake torque to reach angvel_target
+			// set brake torque to reach angvel_target
 			brake_torque += angvel_delta / dt * shaft.getInertia();
 			btScalar factor = brake_torque / brake.getMaxTorque();
 			btClamp(factor, btScalar(0), btScalar(1));
@@ -239,6 +241,29 @@ bool Wheel::update(btScalar dt, WheelContact & contact)
 		}
 	}
 
+	// TCS
+	tcs_active = false;
+	if (tcs_enabled && slide > ideal_slide)
+	{
+		// predict new angvel
+		btScalar angvel_delta = shaft.getAngularVelocity() - angvel;
+		btScalar angvel_new = shaft.getAngularVelocity() + angvel_delta;
+
+		// calculate brake torque correction to reach 95% ideal_slide
+		btScalar angvel_target = (0.95 * ideal_slide + 1) * contact.v1 / radius;
+		angvel_delta = angvel_new - angvel_target;
+		if (angvel_delta > 0)
+		{
+			// set brake torque to reach angvel_target
+			btScalar brake_torque = angvel_delta / dt * shaft.getInertia();
+			btScalar factor = brake_torque / brake.getMaxTorque();
+			btClamp(factor, btScalar(0), btScalar(1));
+			brake.setBrakeFactor(factor);
+			tcs_active = true;
+		}
+	}
+
+	// store old angular velocity
 	angvel = shaft.getAngularVelocity();
 
 	return true;
@@ -247,6 +272,11 @@ bool Wheel::update(btScalar dt, WheelContact & contact)
 void Wheel::setABS(bool value)
 {
 	abs_enabled = value;
+}
+
+void Wheel::setTCS(bool value)
+{
+	tcs_enabled = value;
 }
 
 }

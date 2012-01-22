@@ -67,6 +67,9 @@ public:
 	// enable/disable abs
 	void setABS(bool value);
 
+	// enable/disable abs
+	void setTCS(bool value);
+
 	// wheel contact velocity
 	//const btVector3 & getVelocity() const { return vAB; }
 
@@ -81,6 +84,8 @@ public:
 
 	// true if abs active
 	bool getABS() const { return abs_active; }
+
+	bool getTCS() const { return tcs_active; }
 
 	Suspension suspension;
 	Shaft shaft;
@@ -97,7 +102,9 @@ private:
 	btScalar width;
 	btScalar mass;
 	bool abs_enabled;
+	bool tcs_enabled;
 	bool abs_active;
+	bool tcs_active;
 };
 
 }

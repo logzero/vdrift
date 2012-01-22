@@ -247,6 +247,10 @@ void Vehicle::setABS(bool value)
 void Vehicle::setTCS(bool value)
 {
 	tcs = value;
+	for (int i = 0; i < wheel.size(); ++i)
+	{
+		wheel[i].setTCS(value);
+	}
 }
 
 void Vehicle::setPosition(const btVector3 & position)
@@ -428,6 +432,7 @@ void Vehicle::updateAction(btCollisionWorld * collisionWorld, btScalar dt)
 	int mcount = 0;
 	int wcount = 0;
 	abs_active = false;
+	tcs_active = false;
 	for (int i = 0; i < wheel.size(); ++i)
 	{
 		if (wheel[i].update(dt, wheel_contact[wcount]))
@@ -439,9 +444,10 @@ void Vehicle::updateAction(btCollisionWorld * collisionWorld, btScalar dt)
 			joint.targetVelocity = wheel_contact[wcount].v1 / wheel[i].getRadius();
 			joint.accumulatedImpulse = 0;
 			abs_active |= wheel[i].getABS();
+			tcs_active |= wheel[i].getTCS();
 			mcount++;
 			wcount++;
-		}		
+		}
 	}
 
 	// engine
