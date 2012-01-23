@@ -149,9 +149,6 @@ protected:
 	btAlignedObjectArray<ClutchJoint> clutch_joint;
 	btAlignedObjectArray<MotorJoint> motor_joint;
 
-	// cache wheel angular velocity to be able to calculate applied torque
-	btAlignedObjectArray<btScalar> wheel_angvel;
-
 	btScalar last_auto_clutch;
 	btScalar remaining_shift_time;
 	btScalar tacho_rpm;

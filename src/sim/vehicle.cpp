@@ -103,12 +103,10 @@ void Vehicle::init(
 	diff_joint.resize(differential.size());
 	clutch_joint.resize(differential.size() + 1);
 	motor_joint.resize(wheel.size() * 2 + 1);
-	wheel_angvel.resize(info.wheel.size());
 
 	for (int i = 0; i < wheel.size(); ++i)
 	{
 		wheel[i].init(info.wheel[i], world, *body);
-		wheel_angvel[i] = 0;
 		maxangle = btMax(maxangle, wheel[i].suspension.getMaxSteeringAngle());
 	}
 
