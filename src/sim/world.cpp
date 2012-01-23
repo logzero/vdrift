@@ -113,11 +113,11 @@ void World::fractureCallback()
 			for (int k = 0; k < manifold->getNumContacts(); ++k)
 			{
 				btManifoldPoint& point = manifold->getContactPoint(k);
-				int shape_id = point.m_index0;
+				int con_id = body->getConnectionId(point.m_index0);
 				if (point.m_appliedImpulse > 1E-3 &&
-					body->applyImpulse(shape_id, point.m_appliedImpulse))
+					body->applyImpulse(con_id, point.m_appliedImpulse))
 				{
-					m_activeConnections.push_back(ActiveCon(body, shape_id));
+					m_activeConnections.push_back(ActiveCon(body, con_id));
 				}
 			}
 		}
@@ -128,35 +128,23 @@ void World::fractureCallback()
 			for (int k = 0; k < manifold->getNumContacts(); ++k)
 			{
 				btManifoldPoint& point = manifold->getContactPoint(k);
-				int shape_id = point.m_index1;
+				int con_id = body->getConnectionId(point.m_index1);
 				if (point.m_appliedImpulse > 1E-3 &&
-					body->applyImpulse(shape_id, point.m_appliedImpulse))
+					body->applyImpulse(con_id, point.m_appliedImpulse))
 				{
-					m_activeConnections.push_back(ActiveCon(body, shape_id));
+					m_activeConnections.push_back(ActiveCon(body, con_id));
 				}
 			}
 		}
 	}
 
 	// Update active connections.
-	btAlignedObjectArray<ActiveCon> brokenConnections;
 	for (int i = 0; i < m_activeConnections.size(); ++i)
 	{
+		int con_id = m_activeConnections[i].id;
 		FractureBody* body = m_activeConnections[i].body;
-		int shape_id = m_activeConnections[i].id;
-		int broken_con = -1;
-		if (body->updateConnection(shape_id, broken_con))
-		{
-			brokenConnections.push_back(ActiveCon(body, broken_con));
-		}
-	}
-
-	// Separate pass to break connections, due to shape swapping on removal.
-	for (int i = 0; i < brokenConnections.size(); ++i)
-	{
-		FractureBody* body = brokenConnections[i].body;
-		int broken_con = brokenConnections[i].id;
-		addRigidBody(body->breakConnection(broken_con));
+		btRigidBody* child = body->updateConnection(con_id);
+		if (child) addRigidBody(child);
 	}
 }
 

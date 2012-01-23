@@ -20,14 +20,8 @@ class FractureBody : public btRigidBody
 public:
 	FractureBody(const FractureBodyInfo & info);
 
-	// aply impulse to connection of the shape, return true if connection is activated
-	bool applyImpulse(int shape_id, btScalar impulse);
-
-	// if accumulated impulse exceeds connection strength, return true and set broken_con
-	bool updateConnection(int shape_id, int& broken_con);
-
-	// invalidate connection, separate child shape, return child
-	btRigidBody* breakConnection(int con_id);
+	// returns >= 0 if shape is connected
+	int getConnectionId(int shape_id) const;
 
 	// true if child connected
 	bool isChildConnected(int i) const;
@@ -35,8 +29,11 @@ public:
 	// only applied if child is connected to body
 	void setChildTransform(int i, const btTransform& transform);
 
-	// synchronize child body states
-	void updateState();
+	// apply impulse to connection, return true if connection is activated
+	bool applyImpulse(int con_id, btScalar impulse);
+
+	// if accumulated impulse breaks connection return child else null
+	btRigidBody* updateConnection(int con_id);
 
 	// remove connections, remove child shapes from world
 	void clear(btDynamicsWorld& world);
@@ -67,6 +64,9 @@ private:
 		btMotionState * m_state;
 	};
 	FrMotionState m_motionState;
+
+	// separate shape, return child body
+	btRigidBody* FractureBody::breakConnection(int con_id);
 };
 
 struct FractureBodyInfo

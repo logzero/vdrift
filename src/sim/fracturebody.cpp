@@ -66,47 +66,59 @@ FractureBody::FractureBody(const FractureBodyInfo & info) :
 	}
 }
 
-bool FractureBody::applyImpulse(int shape_id, btScalar impulse)
+int FractureBody::getConnectionId(int shape_id) const
 {
 	btCompoundShape* compound = static_cast<btCompoundShape*>(m_collisionShape);
 	btAssert(shape_id >= 0 && shape_id < compound->getNumChildShapes());
-
 	btCollisionShape* child_shape = compound->getChildShape(shape_id);
-	int con_id = getConId(*child_shape);
-
-	if (con_id >= 0)
-	{
-		btAssert(con_id < m_connections.size());
-		bool activate = m_connections[con_id].m_accImpulse < 1E-3;
-		m_connections[con_id].m_accImpulse += impulse;
-		return activate;
-	}
-	return false;
+	return getConId(*child_shape);
 }
 
-bool FractureBody::updateConnection(int shape_id, int& broken_con)
+bool FractureBody::isChildConnected(int i) const
 {
-	btCompoundShape* compound = static_cast<btCompoundShape*>(m_collisionShape);
-	btAssert(shape_id >= 0 && shape_id < compound->getNumChildShapes());
+	btAssert(i >= 0 && i < m_connections.size());
+	return m_connections[i].m_shapeId >= 0;
+}
 
-	btCollisionShape* child_shape = compound->getChildShape(shape_id);
-	int con_id = getConId(*child_shape);
+void FractureBody::setChildTransform(int i, const btTransform& transform)
+{
+	if (isChildConnected(i))
+	{
+		btCompoundShape* compound = static_cast<btCompoundShape*>(m_collisionShape);
+		int shape_id = m_connections[i].m_shapeId;
+		compound->updateChildTransform(shape_id, transform, false);
+	}
+}
+
+bool FractureBody::applyImpulse(int con_id, btScalar impulse)
+{
+	if (con_id < 0) return false;
+	btAssert(con_id < m_connections.size());
+	bool activate = m_connections[con_id].m_accImpulse < 1E-3;
+	m_connections[con_id].m_accImpulse += impulse;
+	return activate;
+}
+
+btRigidBody* FractureBody::updateConnection(int con_id)
+{
 	btAssert(con_id >= 0 && con_id < m_connections.size());
-
 	Connection& connection = m_connections[con_id];
+	if (m_connections[con_id].m_shapeId < 0)
+	{
+		return 0;
+	}
 	if (connection.m_accImpulse > connection.m_elasticLimit)
 	{
 		if (connection.m_accImpulse > connection.m_plasticLimit)
 		{
-			broken_con = con_id;
-			return true;
+			return breakConnection(con_id);
 		}
 		btScalar damage = connection.m_accImpulse - connection.m_elasticLimit;
 		connection.m_elasticLimit -= damage * 0.5;
 		connection.m_plasticLimit -= damage * 0.5;
 	}
 	connection.m_accImpulse = 0;
-	return false;
+	return 0;
 }
 
 btRigidBody* FractureBody::breakConnection(int con_id)
@@ -127,6 +139,9 @@ btRigidBody* FractureBody::breakConnection(int con_id)
 	btAssert(child->getCollisionShape() == compound->getChildShape(shape_id));
 	compound->removeChildShapeByIndex(shape_id);
 
+	// Invalidate connection.
+	m_connections[con_id].m_shapeId = -1;
+
 	// Update shape id due to shape swapping.
 	if (shape_id < compound->getNumChildShapes())
 	{
@@ -139,23 +154,6 @@ btRigidBody* FractureBody::breakConnection(int con_id)
 	}
 
 	return child;
-}
-
-bool FractureBody::isChildConnected(int i) const
-{
-	btAssert(i >= 0 && i < m_connections.size());
-	return !m_connections[i].m_body->isInWorld();
-}
-
-void FractureBody::setChildTransform(int i, const btTransform& transform)
-{
-	btAssert(i >= 0 && i < m_connections.size());
-	if (!m_connections[i].m_body->isInWorld())
-	{
-		btCompoundShape* compound = static_cast<btCompoundShape*>(m_collisionShape);
-		int shape_id = m_connections[i].m_shapeId;
-		compound->updateChildTransform(shape_id, transform, false);
-	}
 }
 
 void FractureBody::clear(btDynamicsWorld& world)

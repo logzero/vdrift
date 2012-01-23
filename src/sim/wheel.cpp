@@ -103,10 +103,13 @@ bool Wheel::updateContact(btScalar raylen)
 
 bool Wheel::update(btScalar dt, WheelContact & contact)
 {
-	if (!updateContact(2 * radius)) return false;
+	if (!updateContact(2 * radius))
+		return false;
 
 	const Surface * surface = ray.getSurface();
-	btAssert(surface);
+	if (!surface)
+		return false;
+
 	contact.frictionCoeff = tire.getTread() * surface->frictionTread +
 		(1.0 - tire.getTread()) * surface->frictionNonTread;
 
@@ -257,7 +260,7 @@ bool Wheel::update(btScalar dt, WheelContact & contact)
 			// set brake torque to reach angvel_target
 			btScalar brake_torque = angvel_delta / dt * shaft.getInertia();
 			btScalar factor = brake_torque / brake.getMaxTorque();
-			btClamp(factor, btScalar(0), btScalar(1));
+			btClamp(factor, brake.getBrakeFactor(), btScalar(1));
 			brake.setBrakeFactor(factor);
 			tcs_active = true;
 		}
