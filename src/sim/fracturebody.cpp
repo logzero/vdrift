@@ -38,7 +38,7 @@ FractureBody::FractureBody(const FractureBodyInfo & info) :
 	m_connections(info.m_connections),
 	m_motionState(*this)
 {
-	m_internalType = CUSTOM_FRACTURE_TYPE | CO_RIGID_BODY;
+	m_internalType = CO_FRACTURE_TYPE | CO_RIGID_BODY;
 
 	// calculate center of mass and inertia
 	m_centerOfMassOffset = -info.m_massCenter / info.m_mass;

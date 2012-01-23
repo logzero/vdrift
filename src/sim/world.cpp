@@ -64,6 +64,11 @@ void World::setRayTestProcessor(RayTestProcessor & rtp)
 	rayTestProc = &rtp;
 }
 
+void World::setContactAddedCallback(ContactAddedCallback cb)
+{
+	gContactAddedCallback = cb;
+}
+
 void World::addCollisionObject(btCollisionObject * object)
 {
 	// disable shape drawing for meshes
@@ -107,7 +112,7 @@ void World::fractureCallback()
 		btPersistentManifold* manifold = getDispatcher()->getManifoldByIndexInternal(i);
 		if (!manifold->getNumContacts()) continue;
 
-		if (((btCollisionObject*)manifold->getBody0())->getInternalType() & CUSTOM_FRACTURE_TYPE)
+		if (((btCollisionObject*)manifold->getBody0())->getInternalType() & CO_FRACTURE_TYPE)
 		{
 			FractureBody* body = static_cast<FractureBody*>(manifold->getBody0());
 			for (int k = 0; k < manifold->getNumContacts(); ++k)
@@ -122,7 +127,7 @@ void World::fractureCallback()
 			}
 		}
 
-		if (((btCollisionObject*)manifold->getBody1())->getInternalType() & CUSTOM_FRACTURE_TYPE)
+		if (((btCollisionObject*)manifold->getBody1())->getInternalType() & CO_FRACTURE_TYPE)
 		{
 			FractureBody* body = static_cast<FractureBody*>(manifold->getBody1());
 			for (int k = 0; k < manifold->getNumContacts(); ++k)

@@ -113,6 +113,7 @@ GAME::GAME(std::ostream & info_out, std::ostream & error_out) :
 	http("/tmp")
 {
 	carcontrols_local.first = 0;
+	dynamics.setContactAddedCallback(&sim::Vehicle::WheelContactCallback);
 }
 
 /* Start the game with the given arguments... */

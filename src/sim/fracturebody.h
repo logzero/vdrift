@@ -4,7 +4,7 @@
 #include "BulletDynamics/Dynamics/btRigidBody.h"
 #include "LinearMath/btAlignedObjectArray.h"
 
-#define CUSTOM_FRACTURE_TYPE (btRigidBody::CO_USER_TYPE*2)
+#define CO_FRACTURE_TYPE (btRigidBody::CO_USER_TYPE)
 
 class btDynamicsWorld;
 class btCompoundShape;
@@ -66,7 +66,7 @@ private:
 	FrMotionState m_motionState;
 
 	// separate shape, return child body
-	btRigidBody* FractureBody::breakConnection(int con_id);
+	btRigidBody* breakConnection(int con_id);
 };
 
 struct FractureBodyInfo

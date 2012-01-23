@@ -22,7 +22,8 @@
 #include "sim/solveconstraintrow.h"
 #include "sim/world.h"
 #include "coordinatesystem.h"
-#include "BulletCollision/CollisionShapes/btCollisionShape.h"
+#include "BulletCollision/CollisionShapes/btCompoundShape.h"
+#include "BulletCollision/CollisionShapes/btCylinderShape.h"
 
 namespace sim
 {
@@ -87,6 +88,7 @@ void Vehicle::init(
 	body->setCenterOfMassTransform(transform);
 	body->setActivationState(DISABLE_DEACTIVATION);
 	body->setContactProcessingThreshold(0.0);
+	body->setCollisionFlags(body->getCollisionFlags() | btCollisionObject::CF_CUSTOM_MATERIAL_CALLBACK);
 	world.addRigidBody(body);
 	world.addAction(this);
 	this->world = &world;
@@ -787,6 +789,39 @@ void Vehicle::print(std::ostream & out) const
 		out << "slide " << w.tire.getSlide() << "\n";
 		out << "rpm " << w.shaft.getAngularVelocity() * 30 / M_PI << "\n\n";
 	}
+}
+
+bool Vehicle::WheelContactCallback(
+	btManifoldPoint& cp,
+	const btCollisionObject* colObj0,
+	int partId0,
+	int index0,
+	const btCollisionObject* colObj1,
+	int partId1,
+	int index1)
+{
+	// cars are fracture bodies, wheel is a cylinder shape
+	if (colObj0->getInternalType() & CO_FRACTURE_TYPE)
+	{
+		const btCollisionShape* shape = colObj0->getCollisionShape();
+		if (shape->getShapeType() == CYLINDER_SHAPE_PROXYTYPE)
+		{
+			// is contact within contact patch?
+			const btCompoundShape* car = static_cast<const btCompoundShape*>(colObj0->getRootCollisionShape());
+			const btCylinderShapeX* wheel = static_cast<const btCylinderShapeX*>(shape);
+			btVector3 contactPoint = cp.m_localPointA - car->getChildTransform(cp.m_index0).getOrigin();
+			if (-direction::up.dot(contactPoint) > 0.5 * wheel->getRadius())
+			{
+				// break contact (hack)
+				cp.m_normalWorldOnB = btVector3(0, 0, 0);
+				cp.m_distance1 = 0;
+				cp.m_combinedFriction = 0;
+				cp.m_combinedRestitution = 0;
+				return true;
+			}
+		}
+	}
+	return false;
 }
 
 }

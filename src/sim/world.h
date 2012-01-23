@@ -61,6 +61,8 @@ public:
 	struct RayTestProcessor;
 	void setRayTestProcessor(RayTestProcessor & rtp);
 
+	void setContactAddedCallback(ContactAddedCallback cb);
+
 	void addCollisionObject(btCollisionObject * object);
 
 	void update(btScalar dt);

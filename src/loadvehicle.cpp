@@ -547,8 +547,7 @@ bool LoadVehicle(
 		btScalar mass = info.wheel[i].mass;
 		btScalar width = info.wheel[i].width;
 		btScalar radius = info.wheel[i].radius;
-		btScalar dr = 0.1f; // offset due to wheel ray model
-		btVector3 size(width * 0.5f, radius - dr, radius - dr);
+		btVector3 size(width * 0.5f, radius, radius);
 		btCollisionShape * shape = new btCylinderShapeX(size);
 		loadBody(cfg_wheel, error, shape, mass, true);
 	}
