@@ -207,17 +207,14 @@ struct LoadBody
 	SCENENODE & topnode;
 	keyed_container<SCENENODE>::handle & bodynode;
 	LoadDrawable & loadDrawable;
-	bool damage;
 
 	LoadBody(
 		SCENENODE & topnode,
 		keyed_container<SCENENODE>::handle & bodynode,
-		LoadDrawable & loadDrawable,
-		bool damage) :
+		LoadDrawable & loadDrawable) :
 		topnode(topnode),
 		bodynode(bodynode),
-		loadDrawable(loadDrawable),
-		damage(damage)
+		loadDrawable(loadDrawable)
 	{
 		// ctor
 	}
@@ -225,7 +222,7 @@ struct LoadBody
 	bool operator()(const PTree & cfg)
 	{
 		const PTree * link;
-		if (damage && cfg.get("link", link))
+		if (cfg.get("link", link))
 		{
 			// load breakable body drawables
 			if (!loadDrawable(cfg, topnode)) return false;
@@ -545,7 +542,7 @@ bool CAR::LoadGraphics(
 	}
 
 	// load drawables
-	LoadBody loadBody(topnode, bodynode, loadDrawable, damage);
+	LoadBody loadBody(topnode, bodynode, loadDrawable);
 	for (PTree::const_iterator i = cfg.begin(); i != cfg.end(); ++i)
 	{
 		if (i->first != "body" &&
