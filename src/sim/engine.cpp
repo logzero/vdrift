@@ -1,5 +1,24 @@
+/************************************************************************/
+/*                                                                      */
+/* This file is part of VDrift.                                         */
+/*                                                                      */
+/* VDrift is free software: you can redistribute it and/or modify       */
+/* it under the terms of the GNU General Public License as published by */
+/* the Free Software Foundation, either version 3 of the License, or    */
+/* (at your option) any later version.                                  */
+/*                                                                      */
+/* VDrift is distributed in the hope that it will be useful,            */
+/* but WITHOUT ANY WARRANTY; without even the implied warranty of       */
+/* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the        */
+/* GNU General Public License for more details.                         */
+/*                                                                      */
+/* You should have received a copy of the GNU General Public License    */
+/* along with VDrift.  If not, see <http://www.gnu.org/licenses/>.      */
+/*                                                                      */
+/************************************************************************/
+
 #include "sim/engine.h"
-#include <iostream>
+
 namespace sim
 {
 
@@ -53,13 +72,13 @@ void Engine::update(btScalar dt)
 {
 	stalled = shaft.getAngularVelocity() <= info.rpm_stall * M_PI / 30;
 	rev_limit_exceeded = shaft.getAngularVelocity() >= info.rpm_limit * M_PI / 30;
-	
+
 	if (fuel_mass < 1E-3 || rev_limit_exceeded || stalled)
 	{
 		combustion_torque = 0;
-		
+
 		friction_torque = getFrictionTorque(0, shaft.getAngularVelocity());
-		
+
 		if (stalled)
 		{
 			// try to model the static friction of the engine
@@ -97,11 +116,10 @@ btScalar Engine::getCombustionTorque(btScalar throttle, btScalar angvel) const
 
 	btScalar scale = (info.torque.size() - 1) / (info.rpm_limit - info.rpm_stall); // constant
 	btScalar f = (rpm - info.rpm_stall) * scale;
-	unsigned int n0 = floor(f);
-	unsigned int n1 = ceil(f);
-	btScalar fraction = f - n0;
-	btAssert(n1 < info.torque.size());
-	btScalar torque = (1 - fraction) * info.torque[n0] + fraction * info.torque[n1];
+	int n = int(f);
+	btScalar fraction = f - n;
+	btAssert(n + 1 < info.torque.size());
+	btScalar torque = (1 - fraction) * info.torque[n] + fraction * info.torque[n + 1];
 	return throttle * torque;
 }
 

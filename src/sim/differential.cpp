@@ -47,27 +47,3 @@ void Differential::init(const DifferentialInfo & info, Shaft & sha, Shaft & shb)
 }
 
 }
-/*
-void Differential::ComputeWheelTorques(btScalar driveshaft_torque)
-{
-	// Determine torque from the anti-slip mechanism.
-	btScalar anti_slip_torque = anti_slip;
-
-    // Linear torque sensitivity.
-    if (anti_slip_factor > 0)
-		anti_slip_torque = anti_slip_factor * driveshaft_torque;
-
-    // Determine behavior for deceleration.
-	if (anti_slip_torque < 0)
-		anti_slip_torque *= -deceleration_factor;
-
-	anti_slip_torque = std::max(btScalar(0), anti_slip_torque);
-
-	btScalar drag = current_anti_slip * (side1_speed - side2_speed);
-	btClamp(drag, -anti_slip, anti_slip);
-
-	btScalar torque = driveshaft_torque * final_drive;
-	side1_torque = torque * (1 - torque_split) - drag;
-	side2_torque = torque * torque_split + drag;
-}
-*/

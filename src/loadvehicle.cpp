@@ -35,13 +35,13 @@ static bool LoadTransmission(
 {
 	const PTree * cfg_trans;
 	if (!cfg.get("transmission", cfg_trans, error)) return false;
-	
+
 	if (!cfg_trans->get("gears", info.forward_gears, error)) return false;
 
 	info.gear_ratios.resize(info.forward_gears + 2);
 	info.reverse_gears = 1;
 	if (!cfg_trans->get("gear-ratio-r", info.gear_ratios[0], error)) return false;
-	
+
 	info.gear_ratios[1] = 0;
 	for (size_t i = 2; i < info.gear_ratios.size(); ++i)
 	{
@@ -338,7 +338,7 @@ static void CalculateWheelMass(
 	btScalar rim_inertia = rim_mass * rim_radius * rim_radius;
 
 	mass = tire_mass + rim_mass;
-	inertia = (tire_inertia + rim_inertia) * 4;	// scale inertia
+	inertia = (tire_inertia + rim_inertia);
 }
 
 bool LoadWheel(
@@ -355,7 +355,7 @@ bool LoadWheel(
 
 	btVector3 size;
 	if (!cfg_wheel.get("size", size, error)) return false;
-	
+
 	btScalar width = size[0] * 0.001f;
 	btScalar ratio = size[1] * 0.01f;
 	btScalar radius = size[2] * 0.5f * 0.0254f + width * ratio;
@@ -367,7 +367,7 @@ bool LoadWheel(
 	info.radius = radius;
 	info.width = width;
 	info.mass = mass;
-	
+
 	return true;
 }
 

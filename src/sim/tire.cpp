@@ -202,17 +202,15 @@ btVector3 Tire::getForce(
 
 	btScalar Mz = PacejkaMz(sigma, alpha, Fz, gamma, friction_coeff, max_Mz);
 
-	mz = Mz;
 	camber = inclination;
 	slide = sigma;
 	slip = alpha;
 	ideal_slide = sigma_hat;
 	ideal_slip = alpha_hat;
-
-	// debugging
 	fx = Fx;
 	fy = Fy;
 	fz = Fz;
+	mz = Mz;
 
 	// Fx positive during traction, Fy positive in a right turn, Mz positive in a left turn
 	return btVector3(Fx, Fy, Mz);
