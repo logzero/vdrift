@@ -388,13 +388,25 @@ btVector3 Vehicle::getDownVector() const
 // executed as last function(after integration) in bullet singlestepsimulation
 void Vehicle::updateAction(btCollisionWorld * collisionWorld, btScalar dt)
 {
-	//static std::ofstream log("log.txt");
-
 	updateAerodynamics(dt);
 
 	updateTransmission(dt);
 
 	engine.update(dt);
+
+	updateDynamics(dt);
+
+	tacho_rpm = engine.getRPM() * 0.3 + tacho_rpm * 0.7;
+
+	body->setCenterOfMassTransform(transform);
+	body->predictIntegratedTransform(dt, transform);
+	body->proceedToTransform(transform);
+	updateWheelTransform(dt);
+}
+
+void Vehicle::updateDynamics(btScalar dt)
+{
+	//static std::ofstream log("log.txt");
 
 	// differentials (constant, should happen at initialisation maybe?)
 	for (int i = 0; i < differential.size(); ++i)
@@ -417,13 +429,13 @@ void Vehicle::updateAction(btCollisionWorld * collisionWorld, btScalar dt)
 	// transmission and clutch
 	int dcount = differential.size();
 	int ccount = differential.size();
-	if (btFabs(transmission.getGearRatio()) > 0.0)
+	//if (btFabs(transmission.getGearRatio()) > 0.0)
 	{
 		ClutchJoint & cjoint = clutch_joint[ccount];
 		cjoint.shaft1 = &engine.getShaft();
 		cjoint.shaft2 = &transmission.getShaft();
 		cjoint.gearRatio = transmission.getGearRatio();
-		cjoint.impulseLimit = clutch.getTorque() * dt;
+		cjoint.impulseLimit = transmission.getGearRatio() != 0 ? clutch.getTorque() * dt : 0;
 		cjoint.init();
 		ccount++;
 	}
@@ -488,17 +500,15 @@ void Vehicle::updateAction(btCollisionWorld * collisionWorld, btScalar dt)
 			btScalar load = c.response.accumImpulse / dt;
 			btVector3 friction = w.tire.getForce(load, c.frictionCoeff, c.camber, c.vR, c.v1, c.v2);
 
-			if (friction[1] > 0)
+			if (friction[1] * dt > c.friction2.upperLimit)
 			{
-				c.friction2.lowerLimit = 0;
 				c.friction2.upperLimit = friction[1] * dt;
 			}
-			else
+			else if (friction[1] * dt < c.friction2.lowerLimit)
 			{
 				c.friction2.lowerLimit = friction[1] * dt;
-				c.friction2.upperLimit = 0;
 			}
-			//log << friction[0] * dt << " ";
+			//log << friction[0] << " " << w.tire.getSlide() << "; ";
 
 			btScalar impulseLimit = btFabs(friction[0]) * w.getRadius() * dt;
 			motor_joint[i].impulseLimit = impulseLimit;
@@ -527,16 +537,14 @@ void Vehicle::updateAction(btCollisionWorld * collisionWorld, btScalar dt)
 
 			// friction torque limit seems to be always reached
 			// so this seems superflous
-			btScalar impulseLimit = motor_joint[i].accumulatedImpulse;
-			if (impulseLimit > 0)
+			btScalar impulseLimit = -motor_joint[i].accumulatedImpulse / w.getRadius();
+			if (impulseLimit > c.friction1.upperLimit)
 			{
-				c.friction1.upperLimit = 0;
-				c.friction1.lowerLimit = -impulseLimit / w.getRadius();
+				c.friction1.upperLimit = impulseLimit;
 			}
-			else
+			else if (impulseLimit < c.friction1.lowerLimit)
 			{
-				c.friction1.upperLimit = -impulseLimit / w.getRadius();
-				c.friction1.lowerLimit = 0;
+				c.friction1.lowerLimit = impulseLimit;
 			}
 			//log << -impulseLimit / w.getRadius() << " ";
 
@@ -549,15 +557,6 @@ void Vehicle::updateAction(btCollisionWorld * collisionWorld, btScalar dt)
 	}
 	//log << "\n";
 	//feedback /= (steps + 1);
-
-	// tacho low pass
-	tacho_rpm = engine.getRPM() * 0.3 + tacho_rpm * 0.7;
-
-	// update body
-	body->setCenterOfMassTransform(transform);
-	body->predictIntegratedTransform(dt, transform);
-	body->proceedToTransform(transform);
-	updateWheelTransform(dt);
 }
 
 void Vehicle::updateAerodynamics(btScalar dt)
@@ -757,37 +756,94 @@ void Vehicle::calculateFrictionCoefficient(btScalar & lon_mu, btScalar & lat_mu)
 	lat_mu = lat_friction_factor * lat_friction;
 }
 
-void Vehicle::print(std::ostream & out) const
+static inline std::ostream & operator << (std::ostream & os, const btVector3 & v)
 {
-	const btVector3 & v = body->getLinearVelocity();
-	const btVector3 & p = body->getCenterOfMassPosition();
-	const btVector3 & c = body->getCenterOfMassOffset();
+	os << v[0] << " " << v[1] << " " << v[2];
+	return os;
+}
 
+void Vehicle::print(std::ostream & out, bool p1, bool p2, bool p3, bool p4) const
+{
+	const btScalar freq = 120;
 	out << std::fixed << std::setprecision(3);
-	out << "velocity " << v.x() << " " << v.y() << " " << v.z() << "\n";
-	out << "position " << p.x() << " " << p.y() << " " << p.z() << "\n";
-	out << "mass center " << -c.x() << " " << -c.y() << " " << -c.z() << "\n";
-	out << "mass " << 1 / body->getInvMass() << "\n\n";
 
-	out << "aero force " << aero_force.x() << " " << aero_force.y() << " " << aero_force.z() << "\n";
-	out << "aero torque " << aero_torque.x() << " " << aero_torque.y() << " " << aero_torque.z() << "\n";
-	out << "lift/drag " << aero_force.z() / aero_force.y() << "\n\n";
-
-	const ClutchJoint & cjoint = clutch_joint[differential.size()];
-	out << "engine rpm " << engine.getRPM() << "\n";
-	out << "clutch rpm " << transmission.getClutchRPM() << "\n";
-	out << "engine torque " << engine.getTorque() << "\n";
-	out << "clutch torque " << cjoint.accumulatedImpulse * 90 << "\n";
-	out << "clutch engaged " << last_auto_clutch << "\n\n";//clutch.getPosition() << "\n\n";
-
-	for (int i = 0; i < wheel.size(); ++i)
+	if (p1)
 	{
-		const Wheel & w = wheel[i];
-		out << "wheel " << i << "\n";
-		out << "load " << w.suspension.getDisplacement() * w.suspension.getStiffness() << "\n";
-		out << "ideal slide " << w.tire.getIdealSlide() << "\n";
-		out << "slide " << w.tire.getSlide() << "\n";
-		out << "rpm " << w.shaft.getAngularVelocity() * 30 / M_PI << "\n\n";
+		out << "\n\n\n\n\n\n\n";
+		out << "---Body---\n";
+		out << "Velocity: " << body->getLinearVelocity() << "\n";
+		out << "Position: " << body->getCenterOfMassPosition() << "\n";
+		out << "Center of mass: " << -body->getCenterOfMassOffset() << "\n";
+		out << "Total mass: " << 1 / body->getInvMass() << "\n";
+		out << "\n";
+	}
+
+	if (p2)
+	{
+		out << "\n\n\n\n\n\n\n";
+		out << "---Engine---\n";
+		out << "RPM: " << engine.getRPM() << "\n";
+		out << "Power: " << engine.getTorque() * engine.getAngularVelocity() * 0.001 << "\n";
+		out << "\n";
+
+		int n = differential.size();
+		out << "---Transmission---\n";
+		out << "Gear Ratio: " << clutch_joint[n].gearRatio << "\n";
+		out << "Engine Load: " << clutch_joint[n].accumulatedImpulse * freq * clutch_joint[n].shaft1->getAngularVelocity() * 0.001 << "\n";
+		out << "Drive Load: " << -clutch_joint[n].accumulatedImpulse * freq * clutch_joint[n].gearRatio * clutch_joint[n].shaft2->getAngularVelocity() * 0.001 << "\n";
+		out << "\n";
+
+		for (int i = 0; i < n; ++i)
+		{
+			out << "---Differential---\n";
+			out << "Gear Ratio: " << diff_joint[i].gearRatio << "\n";
+			out << "Shaft RPM: " <<  diff_joint[i].shaft1->getAngularVelocity() * 30 / M_PI << "\n";
+			out << "Shaft Load: " << diff_joint[i].accumulatedImpulse * freq * diff_joint[i].shaft1->getAngularVelocity() * 0.001 << "\n";
+			out << "Shaft 1 Load: " << -diff_joint[i].accumulatedImpulse * freq * 0.5 * diff_joint[i].gearRatio * diff_joint[i].shaft2a->getAngularVelocity() * 0.001 << "\n";
+			out << "Shaft 2 Load: " << -diff_joint[i].accumulatedImpulse * freq * 0.5 * diff_joint[i].gearRatio * diff_joint[i].shaft2b->getAngularVelocity() * 0.001 << "\n";
+			out << "\n";
+		}
+	}
+
+	if (p3)
+	{
+		out << "\n\n\n\n\n\n\n";
+		int n = 0;
+		for (int i = 0; i < wheel.size(); ++i)
+		{
+			out << "---Wheel---\n";
+			out << "RPM: " <<  wheel[i].shaft.getAngularVelocity() * 30 / M_PI << "\n";
+			//out << "Fx: " <<  wheel[i].tire.getFx() << "\n";
+			//out << "Fy: " <<  wheel[i].tire.getFy() << "\n";
+			out << "Ideal Slip: " <<  wheel[i].tire.getIdealSlide() << "\n";
+			out << "Slip: " <<  wheel[i].tire.getSlide() << "\n";
+			out << "Slip Angle: " <<  wheel[i].tire.getSlip() << "\n";
+			if (wheel_contact[i].response.accumImpulse > 1E-3)
+			{
+				out << "Friction Load: " << motor_joint[n].accumulatedImpulse * freq * motor_joint[n].shaft->getAngularVelocity() * 0.001 << "\n";
+				++n;
+			}
+			else
+			{
+				out << "Friction Load: 0\n";
+			}
+			out << "\n";
+		}
+	}
+
+	if (p4)
+	{
+		out << "\n\n\n\n\n\n\n";
+		out << "---Aerodynamics---" << "\n";
+		out << "Force: " << aero_force << "\n";
+		out << "Torque: " << aero_torque << "\n";
+		out << "Lift/Drag: " << aero_force.z() / aero_force.y() << "\n\n";
+		for (int i = 0; i != aero_device.size(); ++i)
+		{
+			out << "---Aerodynamic Device---" << "\n";
+			out << "Drag: " << aero_device[i].getDrag() << "\n";
+			out << "Lift: " << aero_device[i].getLift() << "\n\n";
+		}
 	}
 }
 

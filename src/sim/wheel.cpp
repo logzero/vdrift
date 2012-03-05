@@ -192,7 +192,7 @@ bool Wheel::update(btScalar dt, WheelContact & contact)
 		contact.friction1.rhs = -velocityError * jacDiagInv;
 		contact.friction1.cfm = 0;
 		contact.friction1.lowerLimit = 0;
-		contact.friction1.upperLimit = SIMD_INFINITY;
+		contact.friction1.upperLimit = 0;
 		contact.friction1.accumImpulse = 0;
 		contact.friction1.normal = normal;
 		contact.friction1.angularCompA = bodyA->getInvInertiaTensorWorld() * rA.cross(normal);
@@ -212,13 +212,13 @@ bool Wheel::update(btScalar dt, WheelContact & contact)
 		contact.friction2.rhs = -velocityError * jacDiagInv;
 		contact.friction2.cfm = 0;
 		contact.friction2.lowerLimit = 0;
-		contact.friction2.upperLimit = SIMD_INFINITY;
+		contact.friction2.upperLimit = 0;
 		contact.friction2.accumImpulse = 0;
 		contact.friction2.normal = normal;
 		contact.friction2.angularCompA = bodyA->getInvInertiaTensorWorld() * rA.cross(normal);
 		contact.friction2.angularCompB = bodyB->getInvInertiaTensorWorld() * rB.cross(normal);
 	}
-
+/*
 	// ABS
 	abs_active = false;
 	btScalar brake_torque = brake.getTorque();
@@ -268,7 +268,7 @@ bool Wheel::update(btScalar dt, WheelContact & contact)
 
 	// store old angular velocity
 	angvel = shaft.getAngularVelocity();
-
+*/
 	return true;
 }
 

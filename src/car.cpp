@@ -1431,7 +1431,7 @@ void CAR::EnableGlass(bool enable)
 
 void CAR::DebugPrint(std::ostream & out, bool p1, bool p2, bool p3, bool p4) const
 {
-	if (p4) dynamics.print(out);
+	dynamics.print(out, p1, p2, p3, p4);
 }
 
 bool CAR::Serialize(joeserialize::Serializer & s)

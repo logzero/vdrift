@@ -78,6 +78,13 @@ void Suspension::setDisplacement(btScalar value)
 	displacement = value;
 	btClamp(displacement, btScalar(0), travel);
 
+	btVector3 up(0, 0, 1);
+	btVector3 old_dir = hub - lower_arm.anchor;
+	btVector3 new_dir = old_dir + up * displacement;
+	new_dir.normalize();
+	position = lower_arm.anchor + new_dir * lower_arm.length;
+	orientation = hub_orientation;
+/*
 	//if (type == HINGE) fixme
 	{
 		btVector3 up(0, 0, 1);
@@ -93,7 +100,7 @@ void Suspension::setDisplacement(btScalar value)
 		position = lower_arm.anchor + new_dir * lower_arm.length;
 		orientation = rot * hub_orientation;
 	}
-/*	else if (type == MACPHERSON)
+	else if (type == MACPHERSON)
 	{
 		// todo
 	}

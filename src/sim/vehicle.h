@@ -130,7 +130,7 @@ public:
 	bool getTCSActive() const	{ return tcs_active; }
 
 	// debugging
-	void print(std::ostream & out) const;
+	void print(std::ostream & out, bool p1, bool p2, bool p3, bool p4) const;
 
 	// to be registered before adding vehicles to world
 	static bool WheelContactCallback(
@@ -185,6 +185,9 @@ protected:
 	btScalar feedback;
 
 	btVector3 getDownVector() const;
+
+	// update driveline, chassis
+	void updateDynamics(btScalar dt);
 
 	// calculate throttle, clutch, gear
 	void updateTransmission(btScalar dt);
